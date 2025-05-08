@@ -124,23 +124,31 @@ struct SwipeablePhotoStack: View {
             // Get the current stack
             let stack = model.visiblePhotoStack
             
-            // Display up to 3 static card views based on what's available in the stack
-            // IMPORTANT: This completely avoids the ForEach animation issues
-            
-            // Card 3 (furthest back)
-            if stack.count >= 3, let photo = stack[safe: 2] {
-                staticCardView(photo: photo, index: 2, geometry: geometry)
+            // IMPORTANT: Disable ALL animations for stack updates
+            // by wrapping the entire stack in an animation modifier
+            ZStack {
+                // Display up to 3 static card views based on what's available in the stack
+                // IMPORTANT: This completely avoids the ForEach animation issues
+                
+                // Card 3 (furthest back)
+                if stack.count >= 3, let photo = stack[safe: 2] {
+                    staticCardView(photo: photo, index: 2, geometry: geometry)
+                }
+                
+                // Card 2 (middle)
+                if stack.count >= 2, let photo = stack[safe: 1] {
+                    staticCardView(photo: photo, index: 1, geometry: geometry)
+                }
+                
+                // Card 1 (top card)
+                if !stack.isEmpty, let photo = stack[safe: 0] {
+                    staticCardView(photo: photo, index: 0, geometry: geometry)
+                }
             }
-            
-            // Card 2 (middle)
-            if stack.count >= 2, let photo = stack[safe: 1] {
-                staticCardView(photo: photo, index: 1, geometry: geometry)
-            }
-            
-            // Card 1 (top card)
-            if !stack.isEmpty, let photo = stack[safe: 0] {
-                staticCardView(photo: photo, index: 0, geometry: geometry)
-            }
+            // CRITICAL: Use explicit animation control for stack updates
+            .animation(nil, value: stack.count)
+            .animation(nil, value: model.isPreparingStack)
+            .animation(nil, value: isTransitioning)
         }
         .padding()
         .frame(width: geometry.size.width, height: geometry.size.height)
@@ -304,7 +312,7 @@ struct SwipeablePhotoStack: View {
             let screenWidth = UIScreen.main.bounds.width
             let screenHeight = UIScreen.main.bounds.height
             
-            // FIRST ANIMATION PHASE: Card leaving screen
+            // ANIMATION PHASE 1: Top card leaves screen
             withAnimation(.easeOut(duration: swipeAnimationDuration)) {
                 // Animate card completely off screen
                 self.dragState.width = gesture.translation.width > 0 
@@ -324,32 +332,29 @@ struct SwipeablePhotoStack: View {
             
             // Process the swipe after animation
             Task {
-                // Wait for FIRST animation phase to complete (card leaves screen)
+                // Wait for first animation phase to complete
                 try? await Task.sleep(for: .milliseconds(Int(swipeAnimationDuration * 1000)))
                 
-                // CRITICAL: Reset UI state BEFORE model update
+                // IMPORTANT: Reset drag state before model updates to prevent animation conflicts
                 await MainActor.run {
-                    // Reset drag state before any model changes to avoid animation conflicts
+                    // Reset drag state but immediately mark as transitioning
                     self.dragState = .zero
                     self.cardRotation = 0
                     self.draggedCardScale = 1.0
-                    
-                    // Disable animations during card stack updates
-                    self.isTransitioning = true
+                    self.isTransitioning = true 
                 }
                 
                 // Process the swipe in the model - this updates the stack
                 await model.processSwipe(swipeDirection)
                 
-                // SECOND ANIMATION PHASE: New card becoming visible
-                // Wait a short moment for the UI to stabilize
+                // Allow a brief moment for the model to update the stack
                 try? await Task.sleep(for: .milliseconds(50))
                 
+                // ANIMATION PHASE 2: Complete transition and re-enable animations
                 await MainActor.run {
-                    // Re-enable animations
                     self.isAnimating = false
                     
-                    // Wait before enabling transitions to ensure everything is stable
+                    // Wait before disabling transition state to ensure stability
                     Task {
                         try? await Task.sleep(for: .milliseconds(100))
                         self.isTransitioning = false

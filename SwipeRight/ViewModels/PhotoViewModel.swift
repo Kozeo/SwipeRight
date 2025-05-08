@@ -687,8 +687,7 @@ import Observation
             }
         }
         
-        // IMPORTANT: Create a completely new stack rather than modifying the existing one
-        // This reduces animation glitches by avoiding incremental updates
+        // Critical change: preserve current stack structure but update positions
         await MainActor.run {
             // Mark that we're preparing a stack update
             isPreparingStack = true
@@ -699,13 +698,14 @@ import Observation
                 return
             }
             
-            // Create a brand new array for the updated stack
+            // Create a brand new array for the updated stack to avoid animation issues
             var newStack: [PhotoModel] = []
             
             // If we have multiple cards, promote the second card to be the first card
             if visiblePhotoStack.count > 1 {
                 // Take the second card and make it the top card
                 if let secondCard = visiblePhotoStack[safe: 1] {
+                    // IMPORTANT: Create a new card object rather than modifying existing
                     let updatedCard = PhotoModel(
                         asset: secondCard.asset,
                         image: secondCard.image,
@@ -715,7 +715,7 @@ import Observation
                     )
                     newStack.append(updatedCard)
                     
-                    // Set the new current photo
+                    // Update the current photo reference
                     currentPhoto = updatedCard
                 }
                 
@@ -760,7 +760,6 @@ import Observation
             }
             
             // Replace the entire stack at once instead of modifying it incrementally
-            // This prevents animation glitches from intermediate states
             visiblePhotoStack = newStack
             
             // Update currently visible IDs
