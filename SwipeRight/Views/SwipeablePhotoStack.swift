@@ -113,15 +113,18 @@ struct SwipeablePhotoStack: View {
                     )
                     .offset(y: 10)
             }
+            
+            // Safe copy of the current stack to prevent changes during iteration
+            let visibleStack = model.visiblePhotoStack
                 
             // Create array of card identifiers for equatable rendering
-            let cardIdentifiers = model.visiblePhotoStack.enumerated().map { index, photo in
+            let cardIdentifiers = visibleStack.enumerated().map { index, photo in
                 CardIdentifier(id: photo.id, zIndex: photo.zIndex, isTopCard: index == 0)
             }
             
             // Use ForEach with identifiable, equatable elements for better diffing
-            ForEach(model.visiblePhotoStack.indices.reversed(), id: \.self) { index in
-                let photo = model.visiblePhotoStack[index]
+            ForEach(visibleStack.indices.reversed(), id: \.self) { index in
+                let photo = visibleStack[index]
                 let isTopCard = index == 0
                 
                 // Only render visible cards (performance optimization)
@@ -363,10 +366,22 @@ struct SwipeablePhotoStack: View {
             
             Button("Start New Batch") {
                 Task {
-                    // Set transitioning to true before loading new batch
-                    isTransitioning = true
+                    // Reset all flags first to avoid UI state issues
+                    await MainActor.run {
+                        isTransitioning = true
+                        isAnimating = false
+                        dragState = .zero
+                        draggedCardScale = 1.0
+                        cardRotation = 0
+                    }
+                    
+                    // Load a new batch
                     await model.startNewBatch()
-                    isTransitioning = false
+                    
+                    // Reset transition state
+                    await MainActor.run {
+                        isTransitioning = false
+                    }
                 }
             }
             .padding()

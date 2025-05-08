@@ -647,11 +647,22 @@ import Observation
             transitionTo(.idle)
         } else {
             // We've processed all photos in the batch
+            // First ensure we're in a transitioning state
+            transitionTo(.transitioning)
+            
+            // Clear internal state carefully to avoid race conditions
             await MainActor.run {
+                // Clear stack and reset state
                 visiblePhotoStack.removeAll()
                 currentPhoto = nil
+                processingAssetIDs.removeAll()
+                
+                // Now transition to batch complete
                 transitionTo(.batchComplete)
             }
+            
+            // Final cleanup to free memory
+            clearAllCachedResources()
         }
     }
     
@@ -660,6 +671,12 @@ import Observation
         await MainActor.run {
             // Mark current operation
             isPreparingStack = true
+            
+            // Safety check: ensure we have cards to work with
+            guard !visiblePhotoStack.isEmpty else {
+                isPreparingStack = false
+                return
+            }
             
             // Only remove the top card if we have more than one card
             // This prevents flickering when we're at the end of the stack
@@ -711,8 +728,8 @@ import Observation
         }
         
         // If we have only one card left (the last one), make sure it's properly positioned
-        if isLastPhoto && visiblePhotoStack.count == 1 {
-            await MainActor.run {
+        await MainActor.run {
+            if isLastPhoto && !visiblePhotoStack.isEmpty {
                 visiblePhotoStack[0].zIndex = 3
                 visiblePhotoStack[0].scale = 1.0
                 visiblePhotoStack[0].offset = .zero
@@ -734,18 +751,50 @@ import Observation
     }
     
     func startNewBatch() async {
+        // First, clear all existing state to ensure we start fresh
         transitionTo(.loading("Starting new batch"))
         
+        // Clear all in-memory state first
         await MainActor.run {
+            isPreparingStack = true
             isBatchComplete = false
             currentPhoto = nil
             currentIndex = 0
-            photoAssets = []
             visiblePhotoStack.removeAll()
+            photoAssets = []
+            processingAssetIDs.removeAll()
+            currentlyVisibleIDs.removeAll()
         }
         
+        // Cancel any pending image requests
+        cancelAllImageRequests()
+        
+        // Clear all cached resources
         clearAllCachedResources()
+        
+        // Wait a moment to ensure UI state is stable
+        try? await Task.sleep(for: .milliseconds(100))
+        
+        // Now prepare the new batch
         await prepareBatch()
+        
+        // Final state check to ensure we're in a valid state
+        await MainActor.run {
+            isPreparingStack = false
+            
+            // If we still don't have photos after trying to prepare a batch,
+            // make sure we're in the proper state
+            if visiblePhotoStack.isEmpty {
+                if photoAssets.isEmpty {
+                    transitionTo(.noPhotos)
+                } else {
+                    // Try one more time to load at least one photo
+                    Task {
+                        await prepareInitialStack()
+                    }
+                }
+            }
+        }
     }
 }
 
