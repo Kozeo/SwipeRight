@@ -3,6 +3,7 @@ import SwiftUI
 import Photos
 
 struct PhotoModel: Identifiable, Equatable {
+    // MARK: - Properties
     let id: String
     let asset: PHAsset
     let image: UIImage?
@@ -14,10 +15,13 @@ struct PhotoModel: Identifiable, Equatable {
     var scale: CGFloat = 1.0
     var offset: CGSize = .zero
     
-    // Static cache for thumbnails
+    // MARK: - Private Cache
     private static var thumbnailCache: [String: UIImage] = [:]
+    private static let maxCacheSize = 30
     
-    // Computed property for a downsized image to use during animations
+    // MARK: - Computed Properties
+    
+    /// Downsized image to use during animations
     var thumbnailImage: UIImage? {
         // Use cached thumbnail if available
         if let cachedThumbnail = PhotoModel.thumbnailCache[id] {
@@ -26,14 +30,35 @@ struct PhotoModel: Identifiable, Equatable {
         
         guard let image = image else { return nil }
         
-        // Use the original image directly if it's already small enough
+        // Create and cache thumbnail
+        let thumbnail = createThumbnail(from: image)
+        return thumbnail
+    }
+    
+    // MARK: - Public Methods
+    
+    /// Determines the appropriate resolution image based on card position
+    func imageForPosition(isTopCard: Bool) -> UIImage? {
+        if isTopCard {
+            return image // Always use highest quality for the top card
+        } else {
+            return thumbnailImage ?? image // Fall back to full image if thumbnail unavailable
+        }
+    }
+    
+    // MARK: - Private Methods
+    
+    /// Creates a thumbnail from the original image
+    private func createThumbnail(from image: UIImage) -> UIImage? {
         let maxDimension: CGFloat = 400  // Size for thumbnails
+        
+        // Use the original image directly if it's already small enough
         if image.size.width <= maxDimension && image.size.height <= maxDimension {
             PhotoModel.thumbnailCache[id] = image
             return image
         }
         
-        // Otherwise, create a thumbnail with optimal performance
+        // Calculate the scale to maintain aspect ratio
         let scale = min(maxDimension / image.size.width, maxDimension / image.size.height)
         let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         
@@ -56,11 +81,9 @@ struct PhotoModel: Identifiable, Equatable {
         return thumbnail
     }
     
-    // Cache size management
+    /// Cache size management
     private func cleanupThumbnailCacheIfNeeded() {
-        let maxCacheSize = 30 // Limit cache size to prevent excessive memory usage
-        
-        if PhotoModel.thumbnailCache.count > maxCacheSize {
+        if PhotoModel.thumbnailCache.count > PhotoModel.maxCacheSize {
             // Remove approximately 1/3 of the cache when limit is exceeded
             let removeCount = PhotoModel.thumbnailCache.count / 3
             
@@ -74,14 +97,7 @@ struct PhotoModel: Identifiable, Equatable {
         }
     }
     
-    // Determines the appropriate resolution image based on card position
-    func imageForPosition(isTopCard: Bool) -> UIImage? {
-        if isTopCard {
-            return image // Always use highest quality for the top card
-        } else {
-            return thumbnailImage ?? image // Fall back to full image if thumbnail unavailable
-        }
-    }
+    // MARK: - Initializers
     
     init(asset: PHAsset, image: UIImage?) {
         self.id = asset.localIdentifier
@@ -90,7 +106,6 @@ struct PhotoModel: Identifiable, Equatable {
         self.creationDate = asset.creationDate
     }
     
-    // Initialize with stack position parameters
     init(asset: PHAsset, image: UIImage?, zIndex: Double = 0, scale: CGFloat = 1.0, offset: CGSize = .zero) {
         self.id = asset.localIdentifier
         self.asset = asset
@@ -101,12 +116,13 @@ struct PhotoModel: Identifiable, Equatable {
         self.offset = offset
     }
     
+    // MARK: - Equatable
     static func == (lhs: PhotoModel, rhs: PhotoModel) -> Bool {
         return lhs.id == rhs.id
     }
 }
 
-// Enum to represent swipe actions
+// MARK: - SwipeDirection Enum
 enum SwipeDirection {
     case left // ARCHIVE
     case right // KEEP
