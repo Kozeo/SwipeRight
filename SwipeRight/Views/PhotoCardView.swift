@@ -16,11 +16,12 @@ struct PhotoCardView: View {
     // Computed properties for shadow color
     private var shadowColor: Color {
         if dragOffset.width > 30 {
-            return Color.green.opacity(0.5)
+            return Color.green.opacity(0.7)
         } else if dragOffset.width < -30 {
-            return Color.red.opacity(0.5)
+            return Color.red.opacity(0.7)
         } else {
-            return Color.gray.opacity(0.2)
+            // Cyberpunk purple glow when card is not being swiped
+            return Color(red: 0.5, green: 0.0, blue: 1.0).opacity(0.7)
         }
     }
     
@@ -29,9 +30,14 @@ struct PhotoCardView: View {
         return min(abs(Double(dragOffset.width) / 100), 1.0)
     }
     
-    // Shadow optimization - only use complex shadows when not animating
+    // Shadow optimization - use more dramatic shadow when not animating
     private var shadowRadius: CGFloat {
-        return abs(dragOffset.width) > 5 ? 5 : 10
+        return abs(dragOffset.width) > 5 ? 8 : 15
+    }
+    
+    // Second shadow for cyberpunk effect
+    private var outerGlowRadius: CGFloat {
+        return abs(dragOffset.width) > 5 ? 4 : 10
     }
     
     // Use thumbnail during animations to improve performance
@@ -45,11 +51,18 @@ struct PhotoCardView: View {
     
     var body: some View {
         ZStack {
+            // Outer glow effect - larger, more diffuse purple
+            RoundedRectangle(cornerRadius: cornerRadius + 2)
+                .fill(Color.clear)
+                .shadow(color: Color(red: 0.6, green: 0.2, blue: 1.0).opacity(0.4), 
+                        radius: outerGlowRadius + 5, x: 0, y: 0)
+                .frame(width: size.width * 0.9 + 4, height: size.height * 0.85 + 4)
+            
             // Base white background with shadow
             RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(Color.white)
-                .shadow(color: isTopCard ? shadowColor : Color.gray.opacity(0.1),
-                        radius: shadowRadius, x: 0, y: 5)
+                .shadow(color: shadowColor,
+                        radius: shadowRadius, x: 0, y: 2)
             
             // Content container
             VStack(spacing: 0) {
@@ -135,6 +148,11 @@ struct PhotoCardView: View {
                     .opacity(overlayOpacity)
                 }
             }
+            
+            // Subtle inner border to enhance the cyberpunk effect
+            RoundedRectangle(cornerRadius: cornerRadius - 1)
+                .stroke(Color(red: 0.6, green: 0.3, blue: 0.9).opacity(0.3), lineWidth: 1)
+                .frame(width: size.width * 0.9 - 2, height: size.height * 0.85 - 2)
         }
         .frame(width: size.width * 0.9, height: size.height * 0.85)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
