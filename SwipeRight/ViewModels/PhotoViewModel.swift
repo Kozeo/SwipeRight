@@ -159,18 +159,25 @@ import Observation
         // Load the image if not prefetched
         let manager = PHImageManager.default()
         let requestOptions = PHImageRequestOptions()
-        requestOptions.deliveryMode = .opportunistic
+        requestOptions.deliveryMode = .highQualityFormat // Changed from opportunistic to avoid multiple callbacks
         requestOptions.isNetworkAccessAllowed = true
         requestOptions.isSynchronous = false
+        requestOptions.resizeMode = .exact // Get exact size to reduce processing
         
         // Use continuation to properly handle the asynchronous callback
         let image = await withCheckedContinuation { continuation in
+            // Track if we've already resumed to prevent double-resuming
+            var hasResumed = false
+            
             let requestID = manager.requestImage(
                 for: asset,
                 targetSize: CGSize(width: 800, height: 800),
                 contentMode: .aspectFit,
                 options: requestOptions
             ) { result, info in
+                // Only resume once
+                guard !hasResumed else { return }
+                hasResumed = true
                 continuation.resume(returning: result)
             }
             // Store request ID for potential cancellation
@@ -272,4 +279,4 @@ import Observation
         cancelAllImageRequests()
         await prepareBatch()
     }
-} 
+}
