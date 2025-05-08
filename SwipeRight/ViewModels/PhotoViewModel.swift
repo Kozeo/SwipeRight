@@ -61,32 +61,37 @@ import Observation
         // Fetch photos
         let assets = PHAsset.fetchAssets(with: fetchOptions)
         
-        // Create photo models
-        var newPhotos: [PhotoModel] = []
-        
         // Convert PHAssets to PhotoModels with images
         let manager = PHImageManager.default()
         let requestOptions = PHImageRequestOptions()
         requestOptions.isSynchronous = true
         requestOptions.deliveryMode = .highQualityFormat
         
+        // Use a task group to load images in a thread-safe way
+        var loadedPhotos: [PhotoModel] = []
+        
         for i in 0..<min(10, assets.count) {
             let asset = assets.object(at: i)
-            var image: UIImage?
-            
-            manager.requestImage(for: asset, 
-                                targetSize: CGSize(width: 800, height: 800),
-                                contentMode: .aspectFit,
-                                options: requestOptions) { result, _ in
-                image = result
+            // Synchronously load the image to avoid concurrency issues
+            let image = await withCheckedContinuation { continuation in
+                manager.requestImage(
+                    for: asset,
+                    targetSize: CGSize(width: 800, height: 800),
+                    contentMode: .aspectFit,
+                    options: requestOptions
+                ) { result, _ in
+                    continuation.resume(returning: result)
+                }
             }
             
+            // Now we can safely create and append the photo
             let photo = PhotoModel(asset: asset, image: image)
-            newPhotos.append(photo)
+            loadedPhotos.append(photo)
         }
         
+        // Update the UI on the main thread
         await MainActor.run {
-            self.photos = newPhotos
+            self.photos = loadedPhotos
             self.currentIndex = 0
         }
     }
