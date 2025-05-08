@@ -23,7 +23,7 @@ struct SwipeablePhotoStack: View {
     private let cardCornerRadius: CGFloat = 15.0
     
     // EquatableKey for optimizing list rendering performance 
-    private struct CardIdentifier: Equatable {
+    private struct CardIdentifier: Equatable, Hashable {
         let id: String
         let zIndex: Double
         let isTopCard: Bool
@@ -52,19 +52,21 @@ struct SwipeablePhotoStack: View {
     
     var body: some View {
         GeometryReader { geometry in
-            if model.isLoading || isTransitioning || model.isPreparingStack {
-                // Show loading view for initial loading and transitions
-                loadingView
-            } else if !model.visiblePhotoStack.isEmpty {
-                // Show the stack of photos
-                photoStackView(geometry: geometry)
-            } else if model.isBatchComplete {
-                batchCompleteView(geometry: geometry)
-            } else if let error = model.error {
-                errorView(geometry: geometry, errorMessage: error)
-            } else {
-                // Only show no photos if we're not in a transition
-                noPhotosView(geometry: geometry)
+            ZStack {
+                // Always show the photo stack if it's not empty, even during transitions
+                if !model.visiblePhotoStack.isEmpty {
+                    photoStackView(geometry: geometry)
+                } else if model.isLoading && !isTransitioning {
+                    // Show loading only for initial loading, not transitions
+                    loadingView
+                } else if model.isBatchComplete {
+                    batchCompleteView(geometry: geometry)
+                } else if let error = model.error {
+                    errorView(geometry: geometry, errorMessage: error)
+                } else {
+                    // Only show no photos if we're not in a transition
+                    noPhotosView(geometry: geometry)
+                }
             }
         }
         .animation(.easeInOut(duration: 0.3), value: model.isLoading)
@@ -159,15 +161,15 @@ struct SwipeablePhotoStack: View {
         
         if isTopCard {
             // Top card with enhanced dynamic styling
+            // Dynamic glow effect variables that change based on drag direction
+            let dragRatio = min(abs(dragState.width) / 200, 1.0)
+            let dragDirection = dragState.width > 0 ? 1.0 : -1.0
+            let glowColor = dragState.width > 30 ? Color.green.opacity(0.6) :
+                            dragState.width < -30 ? Color.red.opacity(0.6) :
+                            primaryGlowColor.opacity(0.6)
+            
             return AnyView(
                 ZStack {
-                    // Dynamic glow effect that changes based on drag direction
-                    let dragRatio = min(abs(dragState.width) / 200, 1.0)
-                    let dragDirection = dragState.width > 0 ? 1.0 : -1.0
-                    let glowColor = dragState.width > 30 ? Color.green.opacity(0.6) :
-                                    dragState.width < -30 ? Color.red.opacity(0.6) :
-                                    primaryGlowColor.opacity(0.6)
-                    
                     // Only render enhanced effects on high performance devices
                     if isHighPerformanceDevice {
                         // Enhanced glow effect

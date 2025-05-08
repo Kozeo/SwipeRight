@@ -78,11 +78,11 @@ struct PhotoCardView: View {
                     ZStack {
                         // Image with proper scaling
                         Image(uiImage: image)
+                            .interpolation(isTopCard ? .high : .medium)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(maxWidth: size.width * 0.85, maxHeight: size.height * 0.65)
                             // Use lower interpolation quality for background cards to improve performance
-                            .interpolation(isTopCard ? .high : .medium)
                     }
                     .padding(.horizontal, 15)
                     .padding(.bottom, 15)

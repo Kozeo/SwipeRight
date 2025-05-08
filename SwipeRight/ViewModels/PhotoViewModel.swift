@@ -19,7 +19,7 @@ import Observation
     // Stack management
     var visiblePhotoStack: [PhotoModel] = []
     let maxStackSize: Int = 3
-    private var isPreparingStack: Bool = false
+    var isPreparingStack: Bool = false
     
     // State transition tracking
     private(set) var transitionState: TransitionState = .idle
@@ -183,6 +183,15 @@ import Observation
             case .noPhotos:
                 isLoading = false
                 error = "No photos found in your library."
+            case .transitioning:
+                isLoading = true
+                error = nil
+                isBatchComplete = false
+            case .lastPhoto:
+                isLoading = false
+                error = nil
+                // We're at the last photo but not yet complete
+                isBatchComplete = false
             }
             
             // Update transition state
@@ -610,7 +619,7 @@ import Observation
         
         // Move to the next photo if available
         if hasMorePhotos {
-            // Transition to loading state
+            // Transition to loading state but don't clear the visible stack yet
             transitionTo(.transitioning)
             currentIndex += 1
             
