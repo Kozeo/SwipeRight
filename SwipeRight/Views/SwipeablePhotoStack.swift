@@ -478,11 +478,4 @@ struct SwipeablePhotoStack: View {
 // Preview provider
 #Preview {
     SwipeablePhotoStack(model: PhotoViewModel())
-}
-
-// Add safe array access extension
-extension Array {
-    subscript(safe index: Index) -> Element? {
-        return indices.contains(index) ? self[index] : nil
-    }
 } 
