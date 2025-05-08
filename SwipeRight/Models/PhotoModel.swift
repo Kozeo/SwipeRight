@@ -27,7 +27,7 @@ struct PhotoModel: Identifiable, Equatable {
         guard let image = image else { return nil }
         
         // Use the original image directly if it's already small enough
-        let maxDimension: CGFloat = 300
+        let maxDimension: CGFloat = 400  // Increased from 300 for better quality thumbnails
         if image.size.width <= maxDimension && image.size.height <= maxDimension {
             PhotoModel.thumbnailCache[id] = image
             return image
@@ -37,9 +37,12 @@ struct PhotoModel: Identifiable, Equatable {
         let scale = min(maxDimension / image.size.width, maxDimension / image.size.height)
         let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         
-        // Use UIGraphicsImageRenderer for better performance
+        // Use UIGraphicsImageRenderer for better performance with high quality
         let renderer = UIGraphicsImageRenderer(size: newSize)
         let thumbnail = renderer.image { context in
+            // Set high quality context
+            context.cgContext.interpolationQuality = .high
+            
             // Draw with high quality for thumbnail (still much faster than full image)
             image.draw(in: CGRect(origin: .zero, size: newSize))
         }
@@ -52,9 +55,9 @@ struct PhotoModel: Identifiable, Equatable {
     // Determines the appropriate resolution image based on card position
     func imageForPosition(isTopCard: Bool) -> UIImage? {
         if isTopCard {
-            return image
+            return image // Always use highest quality for the top card
         } else {
-            return thumbnailImage
+            return thumbnailImage ?? image // Fall back to full image if thumbnail unavailable
         }
     }
     

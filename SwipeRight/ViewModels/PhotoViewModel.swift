@@ -36,10 +36,10 @@ import Observation
     private var thumbnailCache: [String: UIImage] = [:]
     private let cacheSizeLimit: Int = 15 // Overall image cache size limit
     
-    // Image size constants
-    private let highQualitySize: CGSize = CGSize(width: 1600, height: 1600)
-    private let mediumQualitySize: CGSize = CGSize(width: 900, height: 900) 
-    private let thumbnailSize: CGSize = CGSize(width: 450, height: 450)
+    // Image size constants - increased for better quality
+    private let highQualitySize: CGSize = CGSize(width: 2400, height: 2400)
+    private let mediumQualitySize: CGSize = CGSize(width: 1500, height: 1500) 
+    private let thumbnailSize: CGSize = CGSize(width: 600, height: 600)
     
     // Computed properties
     var hasMorePhotos: Bool {
@@ -96,10 +96,6 @@ import Observation
     func prepareBatch() async {
         transitionTo(.loading("Preparing photos"))
         
-        // Clear cached images and request IDs while preserving any existing stack
-        // to prevent flickering during transition
-        let previousStack = visiblePhotoStack
-        
         // Clear resources but keep visible stack temporarily
         clearAllCachedResources(preserveStack: true)
         
@@ -133,15 +129,15 @@ import Observation
             selectedIndexes.insert(randomIndex)
         }
         
-        // Get the assets for the selected indices
-        var batchAssets: [PHAsset] = []
+        // Get the assets for the selected indices - make a local copy for capturing
+        var localBatchAssets: [PHAsset] = []
         for index in selectedIndexes {
-            batchAssets.append(allAssets.object(at: index))
+            localBatchAssets.append(allAssets.object(at: index))
         }
         
         // Update state
         await MainActor.run {
-            self.photoAssets = batchAssets
+            self.photoAssets = localBatchAssets
             self.currentIndex = 0
             
             // Now clear the previous stack since we have new content ready
@@ -383,31 +379,38 @@ import Observation
             requestOptions.isSynchronous = false
             requestOptions.version = .current
         case .medium:
-            requestOptions.deliveryMode = .opportunistic
+            requestOptions.deliveryMode = .highQualityFormat // Changed from opportunistic to consistently get better quality
             requestOptions.resizeMode = .exact
             requestOptions.isNetworkAccessAllowed = true
             requestOptions.isSynchronous = false
         case .thumbnail:
-            requestOptions.deliveryMode = .fastFormat
+            requestOptions.deliveryMode = .opportunistic // Changed from fastFormat for better thumbnails
             requestOptions.resizeMode = .fast
             requestOptions.isNetworkAccessAllowed = true
             requestOptions.isSynchronous = false
         }
         
         // Use continuation to properly handle the asynchronous callback
-        let image = await withCheckedContinuation { continuation in
+        let image = await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
             // Track if we've already resumed to prevent double-resuming
             var hasResumed = false
             
             let requestID = manager.requestImage(
                 for: asset,
                 targetSize: targetSize,
-                contentMode: .aspectFill,  // Changed from .aspectFit to .aspectFill for better quality
+                contentMode: .aspectFill,  // Using aspectFill for better quality
                 options: requestOptions
             ) { result, info in
                 // Only resume once
                 guard !hasResumed else { return }
                 hasResumed = true
+                
+                // Check if this is a degraded image and we're requesting high quality
+                let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+                
+                // For high quality, if the image is degraded, we may want to wait
+                // for the full quality image, but this can cause delays.
+                // For now, we'll accept the degraded images to avoid UI freezes
                 
                 // Store the result in our cache if it's valid
                 if let image = result {
@@ -568,7 +571,7 @@ import Observation
             let requestID = manager.requestImage(
                 for: asset,
                 targetSize: thumbnailSize,
-                contentMode: .aspectFit,
+                contentMode: .aspectFill,  // Changed to match our other implementation
                 options: requestOptions
             ) { [weak self] image, info in
                 guard let self = self, let image = image else { 

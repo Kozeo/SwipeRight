@@ -42,8 +42,9 @@ struct PhotoCardView: View {
     
     // Use thumbnail during animations to improve performance
     private var displayImage: UIImage? {
-        if abs(dragOffset.width) > 10 {
-            return photo.thumbnailImage
+        // Only use thumbnail during rapid animation or dragging
+        if abs(dragOffset.width) > 50 {
+            return photo.thumbnailImage ?? photo.image
         } else {
             return photo.imageForPosition(isTopCard: isTopCard)
         }
@@ -79,7 +80,7 @@ struct PhotoCardView: View {
                     ZStack {
                         // Image with proper scaling
                         Image(uiImage: image)
-                            .interpolation(isTopCard ? .high : .medium)
+                            .interpolation(.high)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(maxWidth: size.width * 0.85, maxHeight: size.height * 0.65)
@@ -93,6 +94,7 @@ struct PhotoCardView: View {
                             .fill(Color.gray.opacity(0.3))
                             .aspectRatio(3/4, contentMode: .fit)
                             .frame(maxWidth: size.width * 0.85, maxHeight: size.height * 0.65)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
                             .overlay(
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle())
