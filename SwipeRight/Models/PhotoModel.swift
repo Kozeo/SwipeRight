@@ -37,7 +37,7 @@ struct PhotoModel: Identifiable, Equatable {
         let scale = min(maxDimension / image.size.width, maxDimension / image.size.height)
         let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         
-        // Use UIGraphicsImageRenderer for better performance with better quality
+        // Use UIGraphicsImageRenderer for better performance
         let renderer = UIGraphicsImageRenderer(size: newSize)
         let thumbnail = renderer.image { context in
             // Set high quality context
