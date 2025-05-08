@@ -14,13 +14,13 @@ struct PhotoModel: Identifiable, Equatable {
     var scale: CGFloat = 1.0
     var offset: CGSize = .zero
     
-    // Optional pre-cached versions at different quality levels
-    private var _thumbnailImage: UIImage?
+    // Static cache for thumbnails
+    private static var thumbnailCache: [String: UIImage] = [:]
     
     // Computed property for a downsized image to use during animations
     var thumbnailImage: UIImage? {
         // Use cached thumbnail if available
-        if let cachedThumbnail = _thumbnailImage {
+        if let cachedThumbnail = PhotoModel.thumbnailCache[id] {
             return cachedThumbnail
         }
         
@@ -29,7 +29,7 @@ struct PhotoModel: Identifiable, Equatable {
         // Use the original image directly if it's already small enough
         let maxDimension: CGFloat = 300
         if image.size.width <= maxDimension && image.size.height <= maxDimension {
-            _thumbnailImage = image
+            PhotoModel.thumbnailCache[id] = image
             return image
         }
         
@@ -45,7 +45,7 @@ struct PhotoModel: Identifiable, Equatable {
         }
         
         // Cache the result
-        _thumbnailImage = thumbnail
+        PhotoModel.thumbnailCache[id] = thumbnail
         return thumbnail
     }
     
