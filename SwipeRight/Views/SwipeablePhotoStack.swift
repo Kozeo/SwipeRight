@@ -8,6 +8,7 @@ struct SwipeablePhotoStack: View {
     @State private var isAnimating: Bool = false
     @State private var currentCardID: String = ""
     @State private var nextCardPreview: UIImage? = nil
+    @State private var isTransitioning: Bool = false
     
     // Constants
     private let swipeThreshold: CGFloat = 100.0
@@ -16,7 +17,8 @@ struct SwipeablePhotoStack: View {
     
     var body: some View {
         GeometryReader { geometry in
-            if model.isLoading {
+            if model.isLoading || isTransitioning {
+                // Show loading view for both initial loading and transitions
                 loadingView
             } else if let currentPhoto = model.currentPhoto {
                 photoStackView(geometry: geometry, currentPhoto: currentPhoto)
@@ -31,7 +33,8 @@ struct SwipeablePhotoStack: View {
                 batchCompleteView(geometry: geometry)
             } else if let error = model.error {
                 errorView(geometry: geometry, errorMessage: error)
-            } else {
+            } else if !isTransitioning {
+                // Only show no photos if we're not in a transition
                 noPhotosView(geometry: geometry)
             }
         }
@@ -97,7 +100,7 @@ struct SwipeablePhotoStack: View {
                 .scaleEffect(1.5)
                 .padding()
             
-            Text("Loading photos...")
+            Text(isTransitioning ? "Loading next photo..." : "Loading photos...")
                 .font(.headline)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -182,8 +185,9 @@ struct SwipeablePhotoStack: View {
                                 // Wait for the animation to complete
                                 try? await Task.sleep(for: .milliseconds(300))
                                 
-                                // Clear current photo immediately
+                                // Set transitioning state to true before clearing the current photo
                                 await MainActor.run {
+                                    isTransitioning = true
                                     // Set dragState to zero before the processSwipe changes the model
                                     self.dragState = .zero
                                 }
@@ -191,10 +195,11 @@ struct SwipeablePhotoStack: View {
                                 // Process the swipe which will load the next photo
                                 await model.processSwipe(swipeDirection)
                                 
-                                // Reset animation flag after a brief delay to ensure clean transition
+                                // Reset animation flags after a brief delay to ensure clean transition
                                 try? await Task.sleep(for: .milliseconds(100))
                                 await MainActor.run {
                                     self.isAnimating = false
+                                    self.isTransitioning = false
                                 }
                             }
                         } else if !isAnimating {
@@ -236,7 +241,10 @@ struct SwipeablePhotoStack: View {
             
             Button("Start New Batch") {
                 Task {
+                    // Set transitioning to true before loading new batch
+                    isTransitioning = true
                     await model.startNewBatch()
+                    isTransitioning = false
                 }
             }
             .padding()
@@ -288,7 +296,10 @@ struct SwipeablePhotoStack: View {
             
             Button("Refresh") {
                 Task {
+                    // Set transitioning to true during refresh
+                    isTransitioning = true
                     await model.startNewBatch()
+                    isTransitioning = false
                 }
             }
             .padding()
