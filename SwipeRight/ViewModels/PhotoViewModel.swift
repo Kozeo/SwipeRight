@@ -674,31 +674,37 @@ import Observation
         let newStackIndex = currentIndex + maxStackSize - 1
         var newCard: PhotoModel? = nil
         
+        // Preload the new card that will be added to the bottom of the stack
         if newStackIndex < photoAssets.count {
             if let newPhoto = await loadPhoto(at: newStackIndex) {
                 // Create card but don't add it to the stack yet
                 newCard = PhotoModel(
                     asset: newPhoto.asset,
                     image: newPhoto.image,
-                    zIndex: 0,
+                    zIndex: 0, // Lowest z-index for the bottom card
                     scale: 1.0 - (0.05 * CGFloat(maxStackSize - 1)),
                     offset: CGSize(width: 0, height: -8.0 * CGFloat(maxStackSize - 1))
                 )
             }
         }
         
-        // Critical change: preserve current stack structure but update positions
+        // IMPORTANT: Signal that we're preparing the stack to prevent animations
         await MainActor.run {
-            // Mark that we're preparing a stack update
             isPreparingStack = true
-            
-            // Get current stack safely
+        }
+        
+        // Short delay to ensure the flag is processed by the UI
+        try? await Task.sleep(for: .milliseconds(10))
+        
+        // Now update the stack in a single atomic operation
+        await MainActor.run {
+            // Safety check - make sure we have a stack to update
             guard !visiblePhotoStack.isEmpty else {
                 isPreparingStack = false
                 return
             }
             
-            // Create a brand new array for the updated stack to avoid animation issues
+            // Create a completely new array for the updated stack to avoid animation issues
             var newStack: [PhotoModel] = []
             
             // If we have multiple cards, promote the second card to be the first card
@@ -709,9 +715,9 @@ import Observation
                     let updatedCard = PhotoModel(
                         asset: secondCard.asset,
                         image: secondCard.image,
-                        zIndex: 3,
-                        scale: 1.0,
-                        offset: .zero
+                        zIndex: 3, // Top z-index
+                        scale: 1.0, // Full scale for top card
+                        offset: .zero // No offset for top card
                     )
                     newStack.append(updatedCard)
                     
@@ -724,15 +730,15 @@ import Observation
                     let updatedCard = PhotoModel(
                         asset: thirdCard.asset,
                         image: thirdCard.image,
-                        zIndex: 2,
-                        scale: 0.95,
-                        offset: CGSize(width: 0, height: -8.0)
+                        zIndex: 2, // Middle z-index
+                        scale: 0.95, // Slightly smaller
+                        offset: CGSize(width: 0, height: -8.0) // Slightly offset
                     )
                     newStack.append(updatedCard)
                 }
             } else if visiblePhotoStack.count == 1 && !isLastPhoto {
                 // We only have one card but more photos are coming
-                // In this case, we need to reload the same card with new content
+                // In this case, we need to reload the next asset for the new top card
                 let nextIndex = currentIndex
                 if nextIndex < photoAssets.count {
                     let nextAsset = photoAssets[nextIndex]
@@ -740,17 +746,17 @@ import Observation
                         let updatedCard = PhotoModel(
                             asset: nextAsset, 
                             image: existingImage,
-                            zIndex: 3,
-                            scale: 1.0,
-                            offset: .zero
+                            zIndex: 3, // Top z-index
+                            scale: 1.0, // Full scale
+                            offset: .zero // No offset
                         )
                         newStack.append(updatedCard)
                         currentPhoto = updatedCard
                     }
                 }
             } else if visiblePhotoStack.count == 1 && isLastPhoto {
-                // This is truly the last card
-                // Remove it as it's been swiped away
+                // This is truly the last card and it's been swiped away
+                // Leave newStack empty - this will trigger the batch complete state
                 currentPhoto = nil
             }
             
@@ -759,17 +765,22 @@ import Observation
                 newStack.append(card)
             }
             
-            // Replace the entire stack at once instead of modifying it incrementally
+            // CRITICAL: Replace the entire stack at once rather than modifying it incrementally
+            // This helps prevent unwanted animations in SwiftUI
             visiblePhotoStack = newStack
             
-            // Update currently visible IDs
+            // Update currently visible IDs for better caching
             currentlyVisibleIDs = Set(visiblePhotoStack.map { $0.id })
             
-            // Mark stack update as complete
-            isPreparingStack = false
+            // Release the preparation flag after a very short delay
+            // This ensures the UI has time to process the changes with animations disabled
+            Task {
+                try? await Task.sleep(for: .milliseconds(50))
+                isPreparingStack = false
+            }
         }
         
-        // Clean up images that are no longer needed
+        // Clean up images that are no longer needed now that the stack is updated
         cleanupUnusedImages()
     }
     
@@ -855,8 +866,8 @@ extension PhotoViewModel {
     }
 }
 
-// Add safe array access extension
-extension Array {
+// Add safe array access extension - using fileprivate to avoid conflicts
+fileprivate extension Array {
     subscript(safe index: Index) -> Element? {
         return indices.contains(index) ? self[index] : nil
     }
