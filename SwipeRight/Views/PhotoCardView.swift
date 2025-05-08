@@ -3,11 +3,12 @@ import Photos
 
 struct PhotoCardView: View {
     let photo: PhotoModel
-    let onSwiped: (SwipeDirection) -> Void
+    let onSwiped: (SwipeDirection) async -> Void
     
     // State for the swipe animation
     @State private var offset: CGSize = .zero
     @State private var swipeDirection: SwipeDirection = .none
+    @State private var isAnimatingOut = false
     
     // Constants for the animation
     private let swipeThreshold: CGFloat = 120
@@ -66,6 +67,7 @@ struct PhotoCardView: View {
                                 .padding(.top, 20), 
                                 alignment: .top
                             )
+                            .opacity(min(abs(offset.width) / 100, 1.0))
                     }
                     
                     // Archive overlay (red text)
@@ -84,6 +86,7 @@ struct PhotoCardView: View {
                                 .padding(.top, 20),
                                 alignment: .top
                             )
+                            .opacity(min(abs(offset.width) / 100, 1.0))
                     }
                 }
             )
@@ -92,6 +95,7 @@ struct PhotoCardView: View {
             .gesture(
                 DragGesture()
                     .onChanged { gesture in
+                        guard !isAnimatingOut else { return }
                         offset = gesture.translation
                         
                         // Determine swipe direction
@@ -104,31 +108,36 @@ struct PhotoCardView: View {
                         }
                     }
                     .onEnded { gesture in
+                        guard !isAnimatingOut else { return }
+                        
                         // Handle swipe based on threshold
                         if abs(offset.width) > swipeThreshold {
                             // Swipe completed, move the card away
                             let direction: SwipeDirection = offset.width > 0 ? .right : .left
                             
-                            // Animate the card off-screen
+                            // Animate the card off-screen with easing
+                            isAnimatingOut = true
                             let screenWidth = UIScreen.main.bounds.width
-                            withAnimation(.easeOut(duration: 0.2)) {
+                            withAnimation(.easeOut(duration: 0.3)) {
                                 offset.width = direction == .right ? screenWidth * 1.5 : -screenWidth * 1.5
+                                offset.height = 100 // Add a little vertical movement for a more natural feel
                             }
                             
-                            // Notify about swipe action
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                onSwiped(direction)
+                            // Notify about swipe action after animation completes
+                            Task {
+                                try? await Task.sleep(for: .milliseconds(300))
+                                await onSwiped(direction)
                             }
                         } else {
                             // Reset if not swiped enough
-                            withAnimation(.spring()) {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
                                 offset = .zero
                                 swipeDirection = .none
                             }
                         }
                     }
             )
-            .animation(.spring(), value: swipeDirection)
+            .animation(.spring(response: 0.4, dampingFraction: 0.6), value: swipeDirection)
         }
     }
     
@@ -147,7 +156,7 @@ struct PhotoCardView: View {
     let placeholderImage = UIImage(systemName: "photo")
     let photo = PhotoModel(asset: placeholderAsset, image: placeholderImage)
     
-    return PhotoCardView(photo: photo) { direction in
-        print("Swiped \(direction)")
+    return PhotoCardView(photo: photo) { _ in
+        // Preview doesn't need to do anything with the swipe
     }
 } 

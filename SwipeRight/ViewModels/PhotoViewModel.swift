@@ -5,20 +5,22 @@ import Observation
 
 @Observable final class PhotoViewModel {
     // State
-    var photos: [PhotoModel] = []
+    var photoAssets: [PHAsset] = []
+    var currentPhoto: PhotoModel?
     var currentIndex: Int = 0
     var permissionGranted: Bool = false
     var isLoading: Bool = false
+    var isBatchComplete: Bool = false
     var error: String? = nil
+    var batchSize: Int = 10
     
     // Computed properties
-    var currentPhoto: PhotoModel? {
-        guard !photos.isEmpty, currentIndex < photos.count else { return nil }
-        return photos[currentIndex]
+    var hasMorePhotos: Bool {
+        return currentIndex < photoAssets.count - 1
     }
     
-    var hasMorePhotos: Bool {
-        return currentIndex < photos.count - 1
+    var progress: String {
+        return "\(currentIndex + 1) of \(photoAssets.count)"
     }
     
     // MARK: - Photo Library Access
@@ -32,12 +34,12 @@ import Observation
         switch status {
         case .authorized, .limited:
             permissionGranted = true
-            await loadPhotos()
+            await prepareBatch()
         case .notDetermined:
             let newStatus = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
             permissionGranted = (newStatus == .authorized || newStatus == .limited)
             if permissionGranted {
-                await loadPhotos()
+                await prepareBatch()
             }
         case .denied, .restricted:
             permissionGranted = false
@@ -48,75 +50,128 @@ import Observation
         }
     }
     
-    func loadPhotos() async {
+    func prepareBatch() async {
         isLoading = true
-        defer { isLoading = false }
+        isBatchComplete = false
         
         // Create fetch options for photos
         let fetchOptions = PHFetchOptions()
         fetchOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         fetchOptions.predicate = NSPredicate(format: "mediaType = %d", PHAssetMediaType.image.rawValue)
-        fetchOptions.fetchLimit = 10 // Fetch 10 random photos as requested
         
-        // Fetch photos
-        let assets = PHAsset.fetchAssets(with: fetchOptions)
+        // Fetch all photo assets
+        let allAssets = PHAsset.fetchAssets(with: fetchOptions)
         
-        // Convert PHAssets to PhotoModels with images
-        let manager = PHImageManager.default()
-        let requestOptions = PHImageRequestOptions()
-        requestOptions.isSynchronous = true
-        requestOptions.deliveryMode = .highQualityFormat
+        // Select random subset for batch
+        let totalCount = allAssets.count
+        var selectedIndexes = Set<Int>()
         
-        // Use a task group to load images in a thread-safe way
-        var loadedPhotos: [PhotoModel] = []
+        // Make sure we don't try to get more photos than exist
+        let actualBatchSize = min(batchSize, totalCount)
         
-        for i in 0..<min(10, assets.count) {
-            let asset = assets.object(at: i)
-            // Synchronously load the image to avoid concurrency issues
-            let image = await withCheckedContinuation { continuation in
-                manager.requestImage(
-                    for: asset,
-                    targetSize: CGSize(width: 800, height: 800),
-                    contentMode: .aspectFit,
-                    options: requestOptions
-                ) { result, _ in
-                    continuation.resume(returning: result)
-                }
-            }
-            
-            // Now we can safely create and append the photo
-            let photo = PhotoModel(asset: asset, image: image)
-            loadedPhotos.append(photo)
+        // Generate random indices
+        while selectedIndexes.count < actualBatchSize {
+            let randomIndex = Int.random(in: 0..<totalCount)
+            selectedIndexes.insert(randomIndex)
         }
         
-        // Update the UI on the main thread
+        // Get the assets for the selected indices
+        var batchAssets: [PHAsset] = []
+        for index in selectedIndexes {
+            batchAssets.append(allAssets.object(at: index))
+        }
+        
+        // Update state
         await MainActor.run {
-            self.photos = loadedPhotos
+            self.photoAssets = batchAssets
             self.currentIndex = 0
+            self.isLoading = false
+            
+            // Load the first photo
+            Task {
+                await self.loadCurrentPhoto()
+            }
+        }
+    }
+    
+    func loadCurrentPhoto() async {
+        guard currentIndex < photoAssets.count else {
+            await MainActor.run {
+                currentPhoto = nil
+                isBatchComplete = true
+            }
+            return
+        }
+        
+        await MainActor.run {
+            isLoading = true
+        }
+        
+        // Get the asset for the current index
+        let asset = photoAssets[currentIndex]
+        
+        // Load the image
+        let manager = PHImageManager.default()
+        let requestOptions = PHImageRequestOptions()
+        requestOptions.deliveryMode = .highQualityFormat
+        requestOptions.isNetworkAccessAllowed = true
+        requestOptions.isSynchronous = false
+        
+        // Use continuation to properly handle the asynchronous callback
+        let image = await withCheckedContinuation { continuation in
+            manager.requestImage(
+                for: asset,
+                targetSize: CGSize(width: 800, height: 800),
+                contentMode: .aspectFit,
+                options: requestOptions
+            ) { result, info in
+                continuation.resume(returning: result)
+            }
+        }
+        
+        // Create photo model and update state
+        let photo = PhotoModel(asset: asset, image: image)
+        
+        await MainActor.run {
+            currentPhoto = photo
+            isLoading = false
         }
     }
     
     // MARK: - Swipe Actions
     
-    func processSwipe(_ direction: SwipeDirection) {
+    func processSwipe(_ direction: SwipeDirection) async {
+        // Process the swipe action
         switch direction {
         case .left:
-            // Archive photo - in a real app, this would move the photo to an archive
+            // Archive photo logic would go here
             print("Photo archived: \(currentPhoto?.id ?? "unknown")")
         case .right:
-            // Keep photo
+            // Keep photo logic would go here
             print("Photo kept: \(currentPhoto?.id ?? "unknown")")
         case .none:
             break
         }
         
-        // Move to the next photo if available
+        // Move to the next photo
         if hasMorePhotos {
             currentIndex += 1
+            await loadCurrentPhoto()
+        } else {
+            // We've processed all photos in the batch
+            await MainActor.run {
+                isBatchComplete = true
+                currentPhoto = nil
+            }
         }
     }
     
-    func resetPhotos() async {
-        await loadPhotos()
+    func startNewBatch() async {
+        isBatchComplete = false
+        currentPhoto = nil
+        currentIndex = 0
+        photoAssets = []
+        
+        await prepareBatch()
     }
 } 

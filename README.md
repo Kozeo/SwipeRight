@@ -1,14 +1,17 @@
 # SwipeRight Photo Browser
 
-A SwiftUI app that allows users to swipe through photos from their camera roll with smooth animations and visual indicators.
+A SwiftUI app that allows users to swipe through random photos from their camera roll with smooth animations and visual indicators.
 
 ## Features
 
-- Browse through random photos from your camera roll
+- Browse through randomly selected photos from your camera roll
+- Process photos in batches of 10 for efficient organization
 - Swipe right to keep photos (green halo effect)
 - Swipe left to archive photos (red text)
 - View photo date metadata
 - Smooth swipe animations and transitions
+- Batch completion feedback
+- Optimized memory management (only one photo loaded at a time)
 - Proper permission handling for photo library access
 
 ## Architecture
@@ -18,6 +21,13 @@ This app is built using the MVVM (Model-View-ViewModel) pattern:
 - **Models**: Represent the data structure (PhotoModel)
 - **ViewModels**: Handle business logic and data processing (PhotoViewModel)
 - **Views**: Display the UI elements and handle user interactions (PhotoBrowserView, PhotoCardView)
+
+## Performance Optimizations
+
+- Asynchronous photo loading to prevent main thread blocking
+- On-demand image loading (only load current image into memory)
+- Proper memory management to prevent crashes
+- Efficient batch processing
 
 ## Requirements
 
@@ -37,4 +47,5 @@ This app is built using the MVVM (Model-View-ViewModel) pattern:
 - Uses PhotoKit for photo library access
 - Implements modern SwiftUI features and best practices
 - Uses the Observation framework for reactive updates
-- Handles permissions properly with clear user messaging 
+- Handles permissions properly with clear user messaging
+- Follows Swift's modern concurrency model 

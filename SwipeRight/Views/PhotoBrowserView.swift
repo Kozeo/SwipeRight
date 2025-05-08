@@ -20,18 +20,35 @@ struct PhotoBrowserView: View {
                     .fontWeight(.bold)
                     .padding(.top)
                 
+                // Progress indicator
+                if !model.photoAssets.isEmpty && !model.isBatchComplete {
+                    Text(model.progress)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding(.top, 4)
+                }
+                
                 // Photo browsing area
                 ZStack {
                     // Show current photo
                     if let currentPhoto = model.currentPhoto {
                         PhotoCardView(photo: currentPhoto) { direction in
-                            model.processSwipe(direction)
+                            Task {
+                                await model.processSwipe(direction)
+                            }
                         }
                         .padding(.horizontal, 20)
                     } else if model.isLoading {
                         // Loading state
-                        ProgressView("Loading photos...")
-                            .progressViewStyle(CircularProgressViewStyle())
+                        VStack {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle())
+                                .scaleEffect(1.5)
+                                .padding()
+                            
+                            Text("Loading photos...")
+                                .font(.headline)
+                        }
                     } else if let error = model.error {
                         // Error state
                         VStack {
@@ -56,7 +73,38 @@ struct PhotoBrowserView: View {
                             .cornerRadius(10)
                             .padding()
                         }
-                    } else if model.photos.isEmpty {
+                    } else if model.isBatchComplete {
+                        // Batch complete state
+                        VStack(spacing: 20) {
+                            Image(systemName: "checkmark.circle")
+                                .font(.system(size: 80))
+                                .foregroundColor(.green)
+                                .padding()
+                            
+                            Text("Batch Complete!")
+                                .font(.title)
+                                .bold()
+                            
+                            Text("You've processed all photos in this batch.")
+                                .font(.headline)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                            
+                            Button("Start New Batch") {
+                                Task {
+                                    await model.startNewBatch()
+                                }
+                            }
+                            .padding()
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                            .padding(.top)
+                        }
+                        .transition(.opacity.combined(with: .scale))
+                        .animation(.spring(response: 0.5), value: model.isBatchComplete)
+                    } else if model.photoAssets.isEmpty && !model.isLoading {
                         // No photos state
                         VStack {
                             Image(systemName: "photo.on.rectangle.angled")
@@ -70,7 +118,7 @@ struct PhotoBrowserView: View {
                             
                             Button("Refresh") {
                                 Task {
-                                    await model.resetPhotos()
+                                    await model.startNewBatch()
                                 }
                             }
                             .padding()
@@ -82,35 +130,26 @@ struct PhotoBrowserView: View {
                 }
                 .frame(maxHeight: .infinity)
                 
-                // Instructions
-                VStack(spacing: 10) {
-                    HStack {
-                        Image(systemName: "arrow.left")
-                            .foregroundColor(.red)
-                        Text("Swipe left to archive")
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("Swipe right to keep")
-                            .foregroundColor(.secondary)
-                        Image(systemName: "arrow.right")
-                            .foregroundColor(.green)
-                    }
-                    .padding(.horizontal)
-                    
-                    if !model.hasMorePhotos && !model.photos.isEmpty {
-                        Button("Start Over") {
-                            Task {
-                                await model.resetPhotos()
-                            }
+                // Instructions - only show when actively browsing
+                if model.currentPhoto != nil {
+                    VStack(spacing: 10) {
+                        HStack {
+                            Image(systemName: "arrow.left")
+                                .foregroundColor(.red)
+                            Text("Swipe left to archive")
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("Swipe right to keep")
+                                .foregroundColor(.secondary)
+                            Image(systemName: "arrow.right")
+                                .foregroundColor(.green)
                         }
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                        .padding()
+                        .padding(.horizontal)
                     }
+                    .padding(.bottom)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .animation(.easeInOut, value: model.currentPhoto != nil)
                 }
-                .padding(.bottom)
             }
         }
         .task {
