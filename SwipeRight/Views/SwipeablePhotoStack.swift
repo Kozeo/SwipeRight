@@ -7,6 +7,7 @@ struct SwipeablePhotoStack: View {
     @State private var cardRotation: Double = 0
     @State private var isAnimating: Bool = false
     @State private var currentCardID: String = ""
+    @State private var nextCardPreview: UIImage? = nil
     
     // Constants
     private let swipeThreshold: CGFloat = 100.0
@@ -22,6 +23,9 @@ struct SwipeablePhotoStack: View {
                     .onAppear {
                         // Store the current card ID to help prevent ghosting
                         currentCardID = currentPhoto.id
+                        
+                        // Load preview of next photo if available
+                        loadNextPhotoPreview()
                     }
             } else if model.isBatchComplete {
                 batchCompleteView(geometry: geometry)
@@ -34,6 +38,48 @@ struct SwipeablePhotoStack: View {
         // No animation set on currentPhoto to avoid ghosting
         .animation(.easeInOut(duration: 0.3), value: model.isLoading)
         .animation(.easeInOut(duration: 0.3), value: model.isBatchComplete)
+    }
+    
+    // Load next photo preview
+    private func loadNextPhotoPreview() {
+        // Clear any existing preview
+        nextCardPreview = nil
+        
+        // Check if there's a next photo to preview
+        guard model.hasMorePhotos, 
+              model.currentIndex + 1 < model.photoAssets.count else {
+            return
+        }
+        
+        // Get the next asset
+        let nextAssetID = model.photoAssets[model.currentIndex + 1].localIdentifier
+        
+        // Check if we already have this image prefetched
+        if let prefetchedImage = model.prefetchedPhotos[nextAssetID] {
+            nextCardPreview = prefetchedImage
+        } else {
+            // Load a low-res version of the next photo 
+            let nextAsset = model.photoAssets[model.currentIndex + 1]
+            let manager = PHImageManager.default()
+            let requestOptions = PHImageRequestOptions()
+            requestOptions.deliveryMode = .fastFormat
+            requestOptions.isNetworkAccessAllowed = true
+            
+            // Request the image
+            manager.requestImage(
+                for: nextAsset,
+                targetSize: CGSize(width: 300, height: 300),
+                contentMode: .aspectFit,
+                options: requestOptions
+            ) { [weak self] result, info in
+                guard let self = self, let image = result else { return }
+                
+                // Update the preview image on the main thread
+                Task { @MainActor in
+                    self.nextCardPreview = image
+                }
+            }
+        }
     }
     
     // MARK: - Component Views
@@ -54,8 +100,35 @@ struct SwipeablePhotoStack: View {
     
     private func photoStackView(geometry: GeometryProxy, currentPhoto: PhotoModel) -> some View {
         ZStack {
-            // Add a placeholder for the next card if available
-            if model.hasMorePhotos, model.currentIndex + 1 < model.photoAssets.count {
+            // Next photo preview - visible when dragging
+            if let nextImage = nextCardPreview, model.hasMorePhotos, abs(dragState.width) > 10 {
+                // Calculate opacity based on drag distance
+                let dragOpacity = min(abs(Double(dragState.width) / 200), 0.8)
+                
+                VStack {
+                    if let nextCreationDate = model.photoAssets[model.currentIndex + 1].creationDate {
+                        Text(dateFormatter.string(from: nextCreationDate))
+                            .font(.headline)
+                            .padding(.top)
+                    }
+                    
+                    Image(uiImage: nextImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .cornerRadius(10)
+                        .padding()
+                        .frame(maxWidth: geometry.size.width * 0.85, maxHeight: geometry.size.height * 0.7)
+                }
+                .frame(width: geometry.size.width * 0.9, height: geometry.size.height * 0.85)
+                .background(
+                    RoundedRectangle(cornerRadius: 15)
+                        .fill(Color.white)
+                )
+                .shadow(color: Color.gray.opacity(0.3), radius: 5, x: 0, y: 2)
+                .opacity(dragOpacity) // Dynamic opacity based on drag
+                .zIndex(0)
+            } else if model.hasMorePhotos {
+                // Static placeholder when not dragging or next image not loaded yet
                 Rectangle()
                     .fill(Color.white)
                     .frame(width: geometry.size.width * 0.85, height: geometry.size.height * 0.8)
@@ -218,6 +291,14 @@ struct SwipeablePhotoStack: View {
             .cornerRadius(10)
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
+    }
+    
+    // Date formatter for displaying photo dates
+    private var dateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
     }
 }
 
