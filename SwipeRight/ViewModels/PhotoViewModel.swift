@@ -7,12 +7,14 @@ import Observation
     // State
     var photoAssets: [PHAsset] = []
     var currentPhoto: PhotoModel?
+    var prefetchedPhotos: [String: UIImage] = [:]
     var currentIndex: Int = 0
     var permissionGranted: Bool = false
     var isLoading: Bool = false
     var isBatchComplete: Bool = false
     var error: String? = nil
     var batchSize: Int = 10
+    private var imageRequestIDs: [PHImageRequestID] = []
     
     // Computed properties
     var hasMorePhotos: Bool {
@@ -54,6 +56,8 @@ import Observation
         isLoading = true
         isBatchComplete = false
         currentPhoto = nil
+        prefetchedPhotos.removeAll()
+        cancelAllImageRequests()
         
         // Create fetch options for photos
         let fetchOptions = PHFetchOptions()
@@ -100,6 +104,17 @@ import Observation
         
         // Load the first photo immediately after updating the state
         await loadCurrentPhoto()
+        
+        // Prefetch the next few photos
+        prefetchNextPhotos()
+    }
+    
+    private func cancelAllImageRequests() {
+        let manager = PHImageManager.default()
+        for requestID in imageRequestIDs {
+            manager.cancelImageRequest(requestID)
+        }
+        imageRequestIDs.removeAll()
     }
     
     func loadCurrentPhoto() async {
@@ -120,17 +135,37 @@ import Observation
         
         // Get the asset for the current index
         let asset = photoAssets[currentIndex]
+        let assetID = asset.localIdentifier
         
-        // Load the image
+        // Check if we already have this image prefetched
+        if let prefetchedImage = prefetchedPhotos[assetID] {
+            // Create photo model and update state with prefetched image
+            let photo = PhotoModel(asset: asset, image: prefetchedImage)
+            
+            // Update on the main actor
+            await MainActor.run {
+                currentPhoto = photo
+                isLoading = false
+                
+                // Remove from prefetch cache to save memory
+                self.prefetchedPhotos.removeValue(forKey: assetID)
+            }
+            
+            // Prefetch next photos
+            prefetchNextPhotos()
+            return
+        }
+        
+        // Load the image if not prefetched
         let manager = PHImageManager.default()
         let requestOptions = PHImageRequestOptions()
-        requestOptions.deliveryMode = .highQualityFormat
+        requestOptions.deliveryMode = .opportunistic
         requestOptions.isNetworkAccessAllowed = true
         requestOptions.isSynchronous = false
         
         // Use continuation to properly handle the asynchronous callback
         let image = await withCheckedContinuation { continuation in
-            manager.requestImage(
+            let requestID = manager.requestImage(
                 for: asset,
                 targetSize: CGSize(width: 800, height: 800),
                 contentMode: .aspectFit,
@@ -138,6 +173,8 @@ import Observation
             ) { result, info in
                 continuation.resume(returning: result)
             }
+            // Store request ID for potential cancellation
+            imageRequestIDs.append(requestID)
         }
         
         // Create photo model and update state
@@ -147,6 +184,47 @@ import Observation
         await MainActor.run {
             currentPhoto = photo
             isLoading = false
+        }
+        
+        // Prefetch next photos
+        prefetchNextPhotos()
+    }
+    
+    private func prefetchNextPhotos() {
+        // Prefetch next 2 photos if available
+        let prefetchCount = 2
+        let manager = PHImageManager.default()
+        let requestOptions = PHImageRequestOptions()
+        requestOptions.deliveryMode = .opportunistic
+        requestOptions.isNetworkAccessAllowed = true
+        
+        for offset in 1...prefetchCount {
+            let nextIndex = currentIndex + offset
+            guard nextIndex < photoAssets.count else { break }
+            
+            let asset = photoAssets[nextIndex]
+            let assetID = asset.localIdentifier
+            
+            // Skip if already prefetched
+            if prefetchedPhotos[assetID] != nil { continue }
+            
+            // Request lower-res image for prefetching
+            let requestID = manager.requestImage(
+                for: asset,
+                targetSize: CGSize(width: 500, height: 500),
+                contentMode: .aspectFit,
+                options: requestOptions
+            ) { [weak self] image, info in
+                guard let self = self, let image = image else { return }
+                
+                // Store the prefetched image
+                Task { @MainActor in
+                    self.prefetchedPhotos[assetID] = image
+                }
+            }
+            
+            // Store request ID for potential cancellation
+            imageRequestIDs.append(requestID)
         }
     }
     
@@ -188,8 +266,10 @@ import Observation
             currentPhoto = nil
             currentIndex = 0
             photoAssets = []
+            prefetchedPhotos.removeAll()
         }
         
+        cancelAllImageRequests()
         await prepareBatch()
     }
 } 
