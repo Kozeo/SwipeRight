@@ -56,9 +56,9 @@ struct SwipeablePhotoStack: View {
                 // Always show the photo stack if it's not empty, even during transitions
                 if !model.visiblePhotoStack.isEmpty {
                     photoStackView(geometry: geometry)
-                        // Disable animations when transitioning or preparing stack
-                        // to prevent unwanted card movement
-                        .animation(isTransitioning || model.isPreparingStack ? nil : .default, value: model.visiblePhotoStack.count)
+                        // Turn off animations completely when updating stack positions
+                        // This eliminates flickering between cards 
+                        .animation(nil, value: model.visiblePhotoStack.count)
                 } else if model.isLoading && !isTransitioning {
                     // Show loading only for initial loading, not transitions
                     loadingView
@@ -72,10 +72,10 @@ struct SwipeablePhotoStack: View {
                 }
             }
         }
-        // Keep animations for these state changes
+        // Use explicit animations only for state changes
         .animation(.easeInOut(duration: 0.3), value: model.isLoading)
         .animation(.easeInOut(duration: 0.3), value: model.isBatchComplete)
-        // But disable animations for stack preparation to avoid flickering
+        // Disable animations for stack preparation to avoid flickering
         .animation(nil, value: model.isPreparingStack)
     }
     
@@ -309,43 +309,45 @@ struct SwipeablePhotoStack: View {
             // Set animating flag
             isAnimating = true
             
-            // Calculate screen width to ensure card moves fully off screen
+            // Calculate screen dimensions to ensure card moves fully off screen
             let screenWidth = UIScreen.main.bounds.width
             let screenHeight = UIScreen.main.bounds.height
             
+            // Calculate exit target angle for more natural movement
+            let exitAngle = Double(gesture.translation.width > 0 ? 15 : -15)
+            
             // Animate the card off screen with enhanced effects
             withAnimation(.easeOut(duration: swipeAnimationDuration)) {
-                // Fully animate the card off screen in the swipe direction
-                // Use screen width + extra margin to ensure it's completely gone
-                self.dragState.width = self.dragState.width > 0 ? screenWidth + 100 : -screenWidth - 100
+                // Ensure card moves completely off screen in the swipe direction
+                self.dragState.width = gesture.translation.width > 0 
+                    ? screenWidth * 1.5 // Move further to ensure it's offscreen
+                    : -screenWidth * 1.5
                 
-                // Add slight vertical movement based on the initial drag direction
-                let verticalShift = gesture.translation.height / abs(gesture.translation.width) * 100
-                self.dragState.height = min(max(verticalShift, -screenHeight/4), screenHeight/4)
+                // Apply vertical movement for more natural effect based on gesture
+                let verticalRatio = gesture.translation.height / max(abs(gesture.translation.width), 1)
+                self.dragState.height = verticalRatio * screenHeight * 0.5
                 
-                // Slightly rotate more as it exits for a natural feel
-                self.cardRotation = self.dragState.width > 0 ? 15 : -15
+                // Set rotation for natural feel
+                self.cardRotation = exitAngle
                 
-                // Keep the scale mostly the same but slightly reduce for a subtle effect
-                self.draggedCardScale = 0.98
+                // Slightly scale down as card exits
+                self.draggedCardScale = 0.95
             }
             
             // Process the swipe after animation
             Task {
                 // Wait for the animation to complete
-                try? await Task.sleep(for: .milliseconds(300))
+                try? await Task.sleep(for: .milliseconds(Int(swipeAnimationDuration * 1000)))
                 
                 // Set transitioning state to true before clearing the current photo
                 await MainActor.run {
                     isTransitioning = true
-                    // Do NOT reset drag state here - we'll do it after the model updates
                 }
                 
                 // Process the swipe which will update the stack
                 await model.processSwipe(swipeDirection)
                 
-                // Reset animation flags after a brief delay to ensure clean transition
-                try? await Task.sleep(for: .milliseconds(100))
+                // Reset animation flags after processing
                 await MainActor.run {
                     // Reset drag state AFTER the card is removed from the stack
                     self.dragState = .zero

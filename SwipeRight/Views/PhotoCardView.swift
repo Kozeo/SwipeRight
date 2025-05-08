@@ -42,10 +42,14 @@ struct PhotoCardView: View {
     
     // Use thumbnail during animations to improve performance
     private var displayImage: UIImage? {
-        // Only use thumbnail during rapid animation or dragging
+        // Always use thumbnails during rapid animation or dragging
         if abs(dragOffset.width) > 50 {
             return photo.thumbnailImage ?? photo.image
+        } else if isTopCard {
+            // When it's the top card and not in rapid animation, use full image
+            return photo.image
         } else {
+            // For background cards, use the photo's position-based image selection
             return photo.imageForPosition(isTopCard: isTopCard)
         }
     }
@@ -80,7 +84,7 @@ struct PhotoCardView: View {
                     ZStack {
                         // Image with proper scaling
                         Image(uiImage: image)
-                            .interpolation(.high)
+                            .interpolation(.high) // Use high interpolation quality
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(maxWidth: size.width * 0.85, maxHeight: size.height * 0.65)
@@ -163,6 +167,8 @@ struct PhotoCardView: View {
         .id(photo.id) // Ensure view is refreshed when photo changes
         // Apply .drawingGroup() for better rendering performance
         .drawingGroup()
+        // Disable animation for transitions to prevent flicker
+        .animation(nil, value: photo.id)
     }
     
     // Date formatter for displaying the photo date

@@ -37,7 +37,7 @@ import Observation
     private let cacheSizeLimit: Int = 15 // Overall image cache size limit
     
     // Image size constants - increased for better quality
-    private let highQualitySize: CGSize = CGSize(width: 2400, height: 2400)
+    private let highQualitySize: CGSize = CGSize(width: 2400, height: 2400)  // Increased for better quality
     private let mediumQualitySize: CGSize = CGSize(width: 1500, height: 1500) 
     private let thumbnailSize: CGSize = CGSize(width: 600, height: 600)
     
@@ -370,7 +370,7 @@ import Observation
         let manager = PHImageManager.default()
         let requestOptions = PHImageRequestOptions()
         
-        // Set delivery mode based on cache type
+        // Configure options based on cache type
         switch cacheType {
         case .high:
             requestOptions.deliveryMode = .highQualityFormat
@@ -379,12 +379,12 @@ import Observation
             requestOptions.isSynchronous = false
             requestOptions.version = .current
         case .medium:
-            requestOptions.deliveryMode = .highQualityFormat // Changed from opportunistic to consistently get better quality
+            requestOptions.deliveryMode = .highQualityFormat
             requestOptions.resizeMode = .exact
             requestOptions.isNetworkAccessAllowed = true
             requestOptions.isSynchronous = false
         case .thumbnail:
-            requestOptions.deliveryMode = .opportunistic // Changed from fastFormat for better thumbnails
+            requestOptions.deliveryMode = .fastFormat
             requestOptions.resizeMode = .fast
             requestOptions.isNetworkAccessAllowed = true
             requestOptions.isSynchronous = false
@@ -398,19 +398,12 @@ import Observation
             let requestID = manager.requestImage(
                 for: asset,
                 targetSize: targetSize,
-                contentMode: .aspectFill,  // Using aspectFill for better quality
+                contentMode: .aspectFill,
                 options: requestOptions
             ) { result, info in
                 // Only resume once
                 guard !hasResumed else { return }
                 hasResumed = true
-                
-                // Check if this is a degraded image and we're requesting high quality
-                let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
-                
-                // For high quality, if the image is degraded, we may want to wait
-                // for the full quality image, but this can cause delays.
-                // For now, we'll accept the degraded images to avoid UI freezes
                 
                 // Store the result in our cache if it's valid
                 if let image = result {
@@ -675,17 +668,15 @@ import Observation
             // Mark current operation
             isPreparingStack = true
             
-            // Safety check: ensure we have cards to work with
+            // Safety check: ensure we have cards to work with and we're not at the end of the batch
             guard !visiblePhotoStack.isEmpty else {
                 isPreparingStack = false
                 return
             }
             
             // Only remove the top card if we have more than one card
-            // This prevents flickering when we're at the end of the stack
             if visiblePhotoStack.count > 1 {
-                // First update existing card positions before removing the top card
-                // This ensures smooth transitions
+                // Update positions of remaining cards first
                 for i in 1..<visiblePhotoStack.count {
                     // Smoothly animate cards moving up in the stack
                     visiblePhotoStack[i].zIndex += 1
@@ -705,9 +696,22 @@ import Observation
                 // Set the new current photo
                 currentPhoto = visiblePhotoStack.first
             } else if visiblePhotoStack.count == 1 {
-                // We only have one card, so we'll keep it and update its content instead
-                // This prevents flickering when we're at the end of the stack
-                currentPhoto = visiblePhotoStack.first
+                // Special handling for the last card in the stack
+                // If we're not at the last photo in the batch, update the content
+                if !isLastPhoto {
+                    // Keep this card and update its position properties
+                    visiblePhotoStack[0].zIndex = 3
+                    visiblePhotoStack[0].scale = 1.0
+                    visiblePhotoStack[0].offset = .zero
+                    currentPhoto = visiblePhotoStack[0]
+                    
+                    // We'll add new cards below
+                } else {
+                    // This is truly the last card of the batch
+                    // Remove it as it's been swiped away
+                    visiblePhotoStack.removeFirst()
+                    currentPhoto = nil
+                }
             }
         }
         
@@ -735,21 +739,18 @@ import Observation
             }
         }
         
-        // If we have only one card left (the last one), make sure it's properly positioned
+        // Special case: if we're now at the last photo and it's the only one in the stack
         await MainActor.run {
-            if isLastPhoto && !visiblePhotoStack.isEmpty {
+            if isLastPhoto && visiblePhotoStack.count == 1 {
                 visiblePhotoStack[0].zIndex = 3
                 visiblePhotoStack[0].scale = 1.0
                 visiblePhotoStack[0].offset = .zero
+                currentPhoto = visiblePhotoStack[0]
             }
-        }
-        
-        await MainActor.run {
+            
+            // Mark operation as complete
             isPreparingStack = false
-        }
-        
-        // Clean up after updating the stack
-        await MainActor.run {
+            
             // Update currently visible IDs
             currentlyVisibleIDs = Set(visiblePhotoStack.map { $0.id })
         }
