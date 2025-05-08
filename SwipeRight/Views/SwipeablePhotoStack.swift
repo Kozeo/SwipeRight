@@ -6,6 +6,7 @@ struct SwipeablePhotoStack: View {
     @State private var dragState = CGSize.zero
     @State private var cardRotation: Double = 0
     @State private var isAnimating: Bool = false
+    @State private var currentCardID: String = ""
     
     // Constants
     private let swipeThreshold: CGFloat = 100.0
@@ -18,6 +19,10 @@ struct SwipeablePhotoStack: View {
                 loadingView
             } else if let currentPhoto = model.currentPhoto {
                 photoStackView(geometry: geometry, currentPhoto: currentPhoto)
+                    .onAppear {
+                        // Store the current card ID to help prevent ghosting
+                        currentCardID = currentPhoto.id
+                    }
             } else if model.isBatchComplete {
                 batchCompleteView(geometry: geometry)
             } else if let error = model.error {
@@ -26,8 +31,7 @@ struct SwipeablePhotoStack: View {
                 noPhotosView(geometry: geometry)
             }
         }
-        // Only animate these state changes
-        .animation(isAnimating ? .easeInOut(duration: swipeAnimationDuration) : nil, value: model.currentPhoto?.id)
+        // No animation set on currentPhoto to avoid ghosting
         .animation(.easeInOut(duration: 0.3), value: model.isLoading)
         .animation(.easeInOut(duration: 0.3), value: model.isBatchComplete)
     }
@@ -61,7 +65,7 @@ struct SwipeablePhotoStack: View {
                     .zIndex(0)
             }
             
-            // Show current photo
+            // Show current photo - with key ID to prevent view reuse
             PhotoCardView(
                 photo: currentPhoto,
                 size: geometry.size,
@@ -69,6 +73,7 @@ struct SwipeablePhotoStack: View {
                 onSwiped: { _ in }, // This is handled by the gesture below
                 isTopCard: true
             )
+            .id(currentCardID) // Use our stored ID to ensure proper identification
             .offset(x: dragState.width, y: dragState.height)
             .rotationEffect(.degrees(Double(dragState.width) / rotationFactor))
             .zIndex(1)
@@ -87,6 +92,7 @@ struct SwipeablePhotoStack: View {
                             // Set animating flag
                             isAnimating = true
                             
+                            // Animate the card off screen
                             withAnimation(.easeOut(duration: swipeAnimationDuration)) {
                                 self.dragState.width = self.dragState.width > 0 ? 1000 : -1000
                                 self.dragState.height = 100
@@ -94,12 +100,23 @@ struct SwipeablePhotoStack: View {
                             
                             // Process the swipe after animation
                             Task {
+                                // Wait for the animation to complete
                                 try? await Task.sleep(for: .milliseconds(300))
+                                
+                                // Clear current photo immediately
+                                await MainActor.run {
+                                    // Set dragState to zero before the processSwipe changes the model
+                                    self.dragState = .zero
+                                }
+                                
+                                // Process the swipe which will load the next photo
                                 await model.processSwipe(swipeDirection)
                                 
-                                // Reset animation state
-                                self.dragState = .zero
-                                self.isAnimating = false
+                                // Reset animation flag after a brief delay to ensure clean transition
+                                try? await Task.sleep(for: .milliseconds(100))
+                                await MainActor.run {
+                                    self.isAnimating = false
+                                }
                             }
                         } else if !isAnimating {
                             // Reset if not swiped enough
@@ -109,6 +126,12 @@ struct SwipeablePhotoStack: View {
                             }
                         }
                     }
+            )
+            .transition(
+                .asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.8).combined(with: .offset(y: 20))),
+                    removal: .opacity.combined(with: .offset(x: 0, y: 0))
+                )
             )
         }
         .padding()
