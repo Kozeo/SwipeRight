@@ -43,9 +43,6 @@ struct PhotoModel: Identifiable, Equatable {
             // Set high quality context
             context.cgContext.interpolationQuality = .high
             
-            // Set rendering intent for better colors
-            context.cgContext.renderingIntent = .perceptual
-            
             // Draw with high quality
             image.draw(in: CGRect(origin: .zero, size: newSize))
         }
