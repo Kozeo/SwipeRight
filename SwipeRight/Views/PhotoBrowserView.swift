@@ -6,6 +6,7 @@ struct PhotoBrowserView: View {
     
     // State for controlling UI
     @State private var isFirstLoad: Bool = true
+    @State private var currentlyDisplayedPhotoId: String? = nil
     
     var body: some View {
         ZStack {
@@ -32,12 +33,27 @@ struct PhotoBrowserView: View {
                 ZStack {
                     // Show current photo
                     if let currentPhoto = model.currentPhoto {
-                        PhotoCardView(photo: currentPhoto) { direction in
-                            Task {
-                                await model.processSwipe(direction)
+                        // Only create a new card if it's a different photo
+                        if currentlyDisplayedPhotoId != currentPhoto.id {
+                            // Update the ID we're displaying
+                            DispatchQueue.main.async {
+                                currentlyDisplayedPhotoId = currentPhoto.id
                             }
+                            
+                            PhotoCardView(photo: currentPhoto) { direction in
+                                Task {
+                                    // Clear the current photo ID when swiped
+                                    currentlyDisplayedPhotoId = nil
+                                    await model.processSwipe(direction)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .offset(x: 0, y: 50)),
+                                removal: .opacity
+                            ))
+                            .id(currentPhoto.id) // Important: This forces a new view for each photo
                         }
-                        .padding(.horizontal, 20)
                     } else if model.isLoading {
                         // Loading state
                         VStack {
@@ -49,6 +65,7 @@ struct PhotoBrowserView: View {
                             Text("Loading photos...")
                                 .font(.headline)
                         }
+                        .transition(.opacity)
                     } else if let error = model.error {
                         // Error state
                         VStack {
@@ -103,7 +120,6 @@ struct PhotoBrowserView: View {
                             .padding(.top)
                         }
                         .transition(.opacity.combined(with: .scale))
-                        .animation(.spring(response: 0.5), value: model.isBatchComplete)
                     } else if model.photoAssets.isEmpty && !model.isLoading {
                         // No photos state
                         VStack {
@@ -129,6 +145,9 @@ struct PhotoBrowserView: View {
                     }
                 }
                 .frame(maxHeight: .infinity)
+                .animation(.easeInOut(duration: 0.3), value: model.currentPhoto?.id)
+                .animation(.easeInOut(duration: 0.3), value: model.isLoading)
+                .animation(.easeInOut(duration: 0.3), value: model.isBatchComplete)
                 
                 // Instructions - only show when actively browsing
                 if model.currentPhoto != nil {

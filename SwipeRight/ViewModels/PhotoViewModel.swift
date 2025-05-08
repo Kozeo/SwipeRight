@@ -53,6 +53,7 @@ import Observation
     func prepareBatch() async {
         isLoading = true
         isBatchComplete = false
+        currentPhoto = nil
         
         // Create fetch options for photos
         let fetchOptions = PHFetchOptions()
@@ -61,6 +62,15 @@ import Observation
         
         // Fetch all photo assets
         let allAssets = PHAsset.fetchAssets(with: fetchOptions)
+        
+        // Make sure there are photos
+        if allAssets.count == 0 {
+            await MainActor.run {
+                self.isLoading = false
+                self.error = "No photos found in your library."
+            }
+            return
+        }
         
         // Select random subset for batch
         let totalCount = allAssets.count
@@ -86,25 +96,26 @@ import Observation
             self.photoAssets = batchAssets
             self.currentIndex = 0
             self.isLoading = false
-            
-            // Load the first photo
-            Task {
-                await self.loadCurrentPhoto()
-            }
         }
+        
+        // Load the first photo immediately after updating the state
+        await loadCurrentPhoto()
     }
     
     func loadCurrentPhoto() async {
+        // Clear the current photo while loading the next one
+        await MainActor.run {
+            isLoading = true
+            currentPhoto = nil
+        }
+        
+        // Check if we've reached the end of the batch
         guard currentIndex < photoAssets.count else {
             await MainActor.run {
-                currentPhoto = nil
+                isLoading = false
                 isBatchComplete = true
             }
             return
-        }
-        
-        await MainActor.run {
-            isLoading = true
         }
         
         // Get the asset for the current index
@@ -132,6 +143,7 @@ import Observation
         // Create photo model and update state
         let photo = PhotoModel(asset: asset, image: image)
         
+        // Update on the main actor
         await MainActor.run {
             currentPhoto = photo
             isLoading = false
@@ -153,6 +165,11 @@ import Observation
             break
         }
         
+        // Immediately clear the current photo to indicate processing
+        await MainActor.run {
+            currentPhoto = nil
+        }
+        
         // Move to the next photo
         if hasMorePhotos {
             currentIndex += 1
@@ -161,16 +178,17 @@ import Observation
             // We've processed all photos in the batch
             await MainActor.run {
                 isBatchComplete = true
-                currentPhoto = nil
             }
         }
     }
     
     func startNewBatch() async {
-        isBatchComplete = false
-        currentPhoto = nil
-        currentIndex = 0
-        photoAssets = []
+        await MainActor.run {
+            isBatchComplete = false
+            currentPhoto = nil
+            currentIndex = 0
+            photoAssets = []
+        }
         
         await prepareBatch()
     }

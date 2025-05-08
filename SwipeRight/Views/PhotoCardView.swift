@@ -13,6 +13,7 @@ struct PhotoCardView: View {
     // Constants for the animation
     private let swipeThreshold: CGFloat = 120
     private let rotationAngle: Double = 12
+    private let animationDuration: Double = 0.2 // Faster animation
     
     var body: some View {
         ZStack {
@@ -67,7 +68,7 @@ struct PhotoCardView: View {
                                 .padding(.top, 20), 
                                 alignment: .top
                             )
-                            .opacity(min(abs(offset.width) / 100, 1.0))
+                            .opacity(Double((min(abs(offset.width) / 100, 1.0))))
                     }
                     
                     // Archive overlay (red text)
@@ -86,7 +87,7 @@ struct PhotoCardView: View {
                                 .padding(.top, 20),
                                 alignment: .top
                             )
-                            .opacity(min(abs(offset.width) / 100, 1.0))
+                            .opacity(Double(min(abs(offset.width) / 100, 1.0)))
                     }
                 }
             )
@@ -118,15 +119,17 @@ struct PhotoCardView: View {
                             // Animate the card off-screen with easing
                             isAnimatingOut = true
                             let screenWidth = UIScreen.main.bounds.width
-                            withAnimation(.easeOut(duration: 0.3)) {
-                                offset.width = direction == .right ? screenWidth * 1.5 : -screenWidth * 1.5
-                                offset.height = 100 // Add a little vertical movement for a more natural feel
+                            
+                            // Start the callback immediately to load the next photo faster
+                            Task {
+                                // Start next photo loading in background
+                                await onSwiped(direction)
                             }
                             
-                            // Notify about swipe action after animation completes
-                            Task {
-                                try? await Task.sleep(for: .milliseconds(300))
-                                await onSwiped(direction)
+                            // Then animate the current card out
+                            withAnimation(.easeOut(duration: animationDuration)) {
+                                offset.width = direction == .right ? screenWidth * 1.5 : -screenWidth * 1.5
+                                offset.height = 100 // Add a little vertical movement for a more natural feel
                             }
                         } else {
                             // Reset if not swiped enough
@@ -137,7 +140,7 @@ struct PhotoCardView: View {
                         }
                     }
             )
-            .animation(.spring(response: 0.4, dampingFraction: 0.6), value: swipeDirection)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: swipeDirection)
         }
     }
     
