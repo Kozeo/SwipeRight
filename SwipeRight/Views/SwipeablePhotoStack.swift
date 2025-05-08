@@ -112,6 +112,8 @@ struct SwipeablePhotoStack: View {
                 height: geometry.size.height * 0.85 + 20
             )
             .offset(y: 10)
+            // Ensure background glow has the lowest z-index
+            .zIndex(-999)
     }
     
     // Background card at a specific position
@@ -128,7 +130,7 @@ struct SwipeablePhotoStack: View {
         )
         .scaleEffect(scaleValue)
         .offset(y: offsetValue)
-        .zIndex(Double(3 - position))
+        .zIndex(-Double(position))
         .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
     }
     
@@ -151,7 +153,7 @@ struct SwipeablePhotoStack: View {
             .overlay(cardBorder)
             .offset(x: dragState.width, y: dragState.height)
             .rotationEffect(.degrees(Double(dragState.width) / rotationFactor))
-            .zIndex(10)
+            .zIndex(100)
             .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 5)
             .animation(isAnimating ? nil : .spring(response: 0.4, dampingFraction: 0.7), value: dragState)
         }
@@ -174,7 +176,7 @@ struct SwipeablePhotoStack: View {
             .frame(width: geometry.size.width * 0.9, height: geometry.size.height * 0.85)
             .offset(x: dragState.width, y: dragState.height)
             .rotationEffect(.degrees(Double(dragState.width) / rotationFactor))
-            .zIndex(9)
+            .zIndex(99)
     }
     
     // Card border that changes color based on drag direction
