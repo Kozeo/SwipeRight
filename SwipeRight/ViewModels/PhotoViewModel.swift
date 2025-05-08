@@ -37,9 +37,9 @@ import Observation
     private let cacheSizeLimit: Int = 15 // Overall image cache size limit
     
     // Image size constants
-    private let highQualitySize: CGSize = CGSize(width: 1200, height: 1200)
-    private let mediumQualitySize: CGSize = CGSize(width: 600, height: 600) 
-    private let thumbnailSize: CGSize = CGSize(width: 300, height: 300)
+    private let highQualitySize: CGSize = CGSize(width: 1600, height: 1600)
+    private let mediumQualitySize: CGSize = CGSize(width: 900, height: 900) 
+    private let thumbnailSize: CGSize = CGSize(width: 450, height: 450)
     
     // Computed properties
     var hasMorePhotos: Bool {
@@ -379,16 +379,20 @@ import Observation
         case .high:
             requestOptions.deliveryMode = .highQualityFormat
             requestOptions.resizeMode = .exact
+            requestOptions.isNetworkAccessAllowed = true
+            requestOptions.isSynchronous = false
+            requestOptions.version = .current
         case .medium:
             requestOptions.deliveryMode = .opportunistic
-            requestOptions.resizeMode = .fast
+            requestOptions.resizeMode = .exact
+            requestOptions.isNetworkAccessAllowed = true
+            requestOptions.isSynchronous = false
         case .thumbnail:
             requestOptions.deliveryMode = .fastFormat
             requestOptions.resizeMode = .fast
+            requestOptions.isNetworkAccessAllowed = true
+            requestOptions.isSynchronous = false
         }
-        
-        requestOptions.isNetworkAccessAllowed = true
-        requestOptions.isSynchronous = false
         
         // Use continuation to properly handle the asynchronous callback
         let image = await withCheckedContinuation { continuation in
@@ -398,7 +402,7 @@ import Observation
             let requestID = manager.requestImage(
                 for: asset,
                 targetSize: targetSize,
-                contentMode: .aspectFit,
+                contentMode: .aspectFill,  // Changed from .aspectFit to .aspectFill for better quality
                 options: requestOptions
             ) { result, info in
                 // Only resume once

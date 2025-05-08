@@ -205,8 +205,8 @@ struct SwipeablePhotoStack: View {
                 .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 5)
                 .shadow(color: isHighPerformanceDevice ? glowColor.opacity(0.3) : .clear, radius: 12, x: 0, y: 0)
                 .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.8).combined(with: .offset(y: 20))),
-                    removal: .opacity.combined(with: .offset(x: dragState.width > 0 ? 500 : -500, y: 0))
+                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
+                    removal: .opacity.animation(.easeOut(duration: 0.2))
                 ))
                 .animation(.spring(response: 0.4, dampingFraction: 0.7), value: dragState)
             )
@@ -305,9 +305,10 @@ struct SwipeablePhotoStack: View {
             
             // Animate the card off screen with enhanced effects
             withAnimation(.easeOut(duration: swipeAnimationDuration)) {
-                self.dragState.width = self.dragState.width > 0 ? 1000 : -1000
-                self.dragState.height = 100
-                self.draggedCardScale = 0.8 // Shrink slightly as it flies away
+                // Less extreme animation that doesn't cross the whole screen
+                self.dragState.width = self.dragState.width > 0 ? 300 : -300
+                self.dragState.height = 30
+                self.draggedCardScale = 0.95 // Less shrinking for a more natural feel
             }
             
             // Process the swipe after animation

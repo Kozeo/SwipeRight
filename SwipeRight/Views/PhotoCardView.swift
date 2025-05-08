@@ -63,6 +63,7 @@ struct PhotoCardView: View {
                 .fill(Color.white)
                 .shadow(color: shadowColor,
                         radius: shadowRadius, x: 0, y: 2)
+                .frame(width: size.width * 0.9, height: size.height * 0.85)
             
             // Content container
             VStack(spacing: 0) {
@@ -82,7 +83,6 @@ struct PhotoCardView: View {
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(maxWidth: size.width * 0.85, maxHeight: size.height * 0.65)
-                            // Use lower interpolation quality for background cards to improve performance
                     }
                     .padding(.horizontal, 15)
                     .padding(.bottom, 15)
@@ -105,7 +105,7 @@ struct PhotoCardView: View {
             }
             .frame(width: size.width * 0.9, height: size.height * 0.85)
             
-            // Colored border overlay
+            // Colored border overlay - properly aligned with card bounds
             if isTopCard {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .stroke(
@@ -151,7 +151,7 @@ struct PhotoCardView: View {
                 }
             }
             
-            // Subtle inner border to enhance the cyberpunk effect
+            // Subtle inner border to enhance the cyberpunk effect - correctly aligned
             RoundedRectangle(cornerRadius: cornerRadius - 1)
                 .stroke(Color(red: 0.6, green: 0.3, blue: 0.9).opacity(0.3), lineWidth: 1)
                 .frame(width: size.width * 0.9 - 2, height: size.height * 0.85 - 2)
