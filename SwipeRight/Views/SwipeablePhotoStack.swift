@@ -306,12 +306,25 @@ struct SwipeablePhotoStack: View {
             // Set animating flag
             isAnimating = true
             
+            // Calculate screen width to ensure card moves fully off screen
+            let screenWidth = UIScreen.main.bounds.width
+            let screenHeight = UIScreen.main.bounds.height
+            
             // Animate the card off screen with enhanced effects
             withAnimation(.easeOut(duration: swipeAnimationDuration)) {
-                // Less extreme animation that doesn't cross the whole screen
-                self.dragState.width = self.dragState.width > 0 ? 300 : -300
-                self.dragState.height = 30
-                self.draggedCardScale = 0.95 // Less shrinking for a more natural feel
+                // Fully animate the card off screen in the swipe direction
+                // Use screen width + extra margin to ensure it's completely gone
+                self.dragState.width = self.dragState.width > 0 ? screenWidth + 100 : -screenWidth - 100
+                
+                // Add slight vertical movement based on the initial drag direction
+                let verticalShift = gesture.translation.height / abs(gesture.translation.width) * 100
+                self.dragState.height = min(max(verticalShift, -screenHeight/4), screenHeight/4)
+                
+                // Slightly rotate more as it exits for a natural feel
+                self.cardRotation = self.dragState.width > 0 ? 15 : -15
+                
+                // Keep the scale mostly the same but slightly reduce for a subtle effect
+                self.draggedCardScale = 0.98
             }
             
             // Process the swipe after animation
@@ -322,9 +335,7 @@ struct SwipeablePhotoStack: View {
                 // Set transitioning state to true before clearing the current photo
                 await MainActor.run {
                     isTransitioning = true
-                    // Reset drag state
-                    self.dragState = .zero
-                    self.draggedCardScale = 1.0
+                    // Do NOT reset drag state here - we'll do it after the model updates
                 }
                 
                 // Process the swipe which will update the stack
@@ -333,6 +344,10 @@ struct SwipeablePhotoStack: View {
                 // Reset animation flags after a brief delay to ensure clean transition
                 try? await Task.sleep(for: .milliseconds(100))
                 await MainActor.run {
+                    // Reset drag state AFTER the card is removed from the stack
+                    self.dragState = .zero
+                    self.cardRotation = 0
+                    self.draggedCardScale = 1.0
                     self.isAnimating = false
                     self.isTransitioning = false
                 }

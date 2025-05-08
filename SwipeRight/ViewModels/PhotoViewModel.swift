@@ -687,14 +687,20 @@ import Observation
                 // Remove the top card (it was swiped)
                 visiblePhotoStack.removeFirst()
                 
-                // Move remaining cards up in the stack
+                // Move remaining cards up in the stack with enhanced animation
                 for i in 0..<visiblePhotoStack.count {
+                    // Smoothly animate cards moving up in the stack
                     visiblePhotoStack[i].zIndex += 1
-                    visiblePhotoStack[i].scale += 0.05
-                    visiblePhotoStack[i].offset = CGSize(
-                        width: 0,
-                        height: visiblePhotoStack[i].offset.height + 8
-                    )
+                    
+                    // Scale cards up as they move to the front
+                    let originalScale = 1.0 - (0.05 * CGFloat(i + 1))
+                    let targetScale = 1.0 - (0.05 * CGFloat(i))
+                    visiblePhotoStack[i].scale = targetScale
+                    
+                    // Move cards upward for better stacking effect
+                    let originalOffset = CGSize(width: 0, height: -8.0 * CGFloat(i + 1))
+                    let targetOffset = CGSize(width: 0, height: -8.0 * CGFloat(i))
+                    visiblePhotoStack[i].offset = targetOffset
                 }
                 
                 // Set the new current photo
