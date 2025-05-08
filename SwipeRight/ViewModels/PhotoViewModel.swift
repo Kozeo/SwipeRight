@@ -631,16 +631,20 @@ import Observation
             }
             
             // Update the stack with new positions
+            // This is the critical UI update
+            isPreparingStack = true
             await updateStackAfterSwipe()
+            isPreparingStack = false
             
             // Prefetch more photos beyond the visible stack
-            prefetchNextPhotos()
-            
-            // Clean up images that are no longer needed
-            cleanupUnusedImages()
-            
-            // Return to idle state when done
-            transitionTo(.idle)
+            // Do this after stack update to prevent UI jank
+            Task {
+                prefetchNextPhotos()
+                cleanupUnusedImages()
+                
+                // Return to idle state when done with background tasks
+                transitionTo(.idle)
+            }
         } else {
             // We've processed all photos in the batch
             // First ensure we're in a transitioning state
@@ -658,12 +662,34 @@ import Observation
             }
             
             // Final cleanup to free memory
-            clearAllCachedResources()
+            Task {
+                clearAllCachedResources()
+            }
         }
     }
     
     // Update the stack after a swipe
     private func updateStackAfterSwipe() async {
+        // First, load any new photos needed for the stack BEFORE updating the UI
+        // This helps ensure we have content ready before animations occur
+        let newStackIndex = currentIndex + maxStackSize - 1
+        var newCardToAdd: PhotoModel? = nil
+        
+        if newStackIndex < photoAssets.count {
+            // Preload the new photo that will be added to the stack
+            if let newPhoto = await loadPhoto(at: newStackIndex) {
+                // Create the card but don't add it to the stack yet
+                newCardToAdd = PhotoModel(
+                    asset: newPhoto.asset,
+                    image: newPhoto.image,
+                    zIndex: 0,
+                    scale: 1.0 - (0.05 * CGFloat(maxStackSize - 1)),
+                    offset: CGSize(width: 0, height: -8.0 * CGFloat(maxStackSize - 1))
+                )
+            }
+        }
+        
+        // Now update the UI with all data already prepared
         await MainActor.run {
             // Mark current operation
             isPreparingStack = true
@@ -704,8 +730,6 @@ import Observation
                     visiblePhotoStack[0].scale = 1.0
                     visiblePhotoStack[0].offset = .zero
                     currentPhoto = visiblePhotoStack[0]
-                    
-                    // We'll add new cards below
                 } else {
                     // This is truly the last card of the batch
                     // Remove it as it's been swiped away
@@ -713,34 +737,16 @@ import Observation
                     currentPhoto = nil
                 }
             }
-        }
-        
-        // Check if we need to add more cards to the stack
-        let newStackIndex = currentIndex + maxStackSize - 1
-        
-        if newStackIndex < photoAssets.count {
-            // We have more photos to add to the stack
-            if let newPhoto = await loadPhoto(at: newStackIndex) {
-                await MainActor.run {
-                    // Create a new card for the bottom of the stack
-                    let bottomCard = PhotoModel(
-                        asset: newPhoto.asset,
-                        image: newPhoto.image,
-                        zIndex: 0,
-                        scale: 1.0 - (0.05 * CGFloat(maxStackSize - 1)),
-                        offset: CGSize(width: 0, height: -8.0 * CGFloat(maxStackSize - 1))
-                    )
-                    
-                    // Add the new card at the end of the stack if not already present
-                    if !visiblePhotoStack.contains(where: { $0.id == bottomCard.id }) {
-                        visiblePhotoStack.append(bottomCard)
-                    }
+            
+            // Now add the new card that we pre-loaded if available
+            if let newCard = newCardToAdd {
+                // Add the new card at the end of the stack if not already present
+                if !visiblePhotoStack.contains(where: { $0.id == newCard.id }) {
+                    visiblePhotoStack.append(newCard)
                 }
             }
-        }
-        
-        // Special case: if we're now at the last photo and it's the only one in the stack
-        await MainActor.run {
+            
+            // Special case: if we're now at the last photo and it's the only one in the stack
             if isLastPhoto && visiblePhotoStack.count == 1 {
                 visiblePhotoStack[0].zIndex = 3
                 visiblePhotoStack[0].scale = 1.0

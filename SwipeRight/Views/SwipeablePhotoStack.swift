@@ -56,9 +56,10 @@ struct SwipeablePhotoStack: View {
                 // Always show the photo stack if it's not empty, even during transitions
                 if !model.visiblePhotoStack.isEmpty {
                     photoStackView(geometry: geometry)
-                        // Turn off animations completely when updating stack positions
-                        // This eliminates flickering between cards 
-                        .animation(nil, value: model.visiblePhotoStack.count)
+                        // Completely disable animations when updating stack positions 
+                        // or during transitions
+                        .animation(nil, value: model.visiblePhotoStack)
+                        .animation(nil, value: isTransitioning)
                 } else if model.isLoading && !isTransitioning {
                     // Show loading only for initial loading, not transitions
                     loadingView
@@ -138,6 +139,12 @@ struct SwipeablePhotoStack: View {
                     cardView(for: photo, at: index, in: geometry)
                         // Use key to prevent unnecessary re-renders when only dragState changes
                         .id(cardIdentifiers[index])
+                        // Disable animations for card positioning to prevent flickering
+                        .animation(nil, value: photo.zIndex)
+                        .animation(nil, value: photo.scale)
+                        .animation(nil, value: photo.offset)
+                        // Disable all animations during transitions
+                        .animation(isTransitioning ? nil : .default, value: photo.id)
                 }
             }
             // Apply animation modifier only to explicit state changes
@@ -281,6 +288,9 @@ struct SwipeablePhotoStack: View {
                 )
                 // Remove transition effects for smooth forward movement
                 .animation(.spring(response: 0.5, dampingFraction: 0.8), value: dragState)
+                // Add a subtle fade-in for new cards
+                .opacity(model.isPreparingStack ? 0 : 1)
+                .animation(model.isPreparingStack ? nil : .easeIn(duration: 0.2), value: model.isPreparingStack)
             )
         }
     }
@@ -340,6 +350,7 @@ struct SwipeablePhotoStack: View {
                 try? await Task.sleep(for: .milliseconds(Int(swipeAnimationDuration * 1000)))
                 
                 // Set transitioning state to true before clearing the current photo
+                // This is the critical moment to disable animations
                 await MainActor.run {
                     isTransitioning = true
                 }
@@ -354,7 +365,13 @@ struct SwipeablePhotoStack: View {
                     self.cardRotation = 0
                     self.draggedCardScale = 1.0
                     self.isAnimating = false
-                    self.isTransitioning = false
+                    
+                    // Keep transitioning flag true for a moment longer to ensure
+                    // no animation happens during the stack update
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(100))
+                        isTransitioning = false
+                    }
                 }
             }
         } else {
