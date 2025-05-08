@@ -45,7 +45,7 @@ struct PhotoCardView: View {
         if abs(dragOffset.width) > 10 {
             return photo.thumbnailImage
         } else {
-            return photo.image
+            return photo.imageForPosition(isTopCard: isTopCard)
         }
     }
     
@@ -81,6 +81,8 @@ struct PhotoCardView: View {
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(maxWidth: size.width * 0.85, maxHeight: size.height * 0.65)
+                            // Use lower interpolation quality for background cards to improve performance
+                            .interpolation(isTopCard ? .high : .medium)
                     }
                     .padding(.horizontal, 15)
                     .padding(.bottom, 15)

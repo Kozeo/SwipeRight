@@ -6,89 +6,70 @@ struct SwipeablePhotoStack: View {
     @State private var dragState = CGSize.zero
     @State private var cardRotation: Double = 0
     @State private var isAnimating: Bool = false
-    @State private var currentCardID: String = ""
-    @State private var nextCardPreview: UIImage? = nil
     @State private var isTransitioning: Bool = false
+    @State private var draggedCardScale: CGFloat = 1.0
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
     
     // Constants
     private let swipeThreshold: CGFloat = 100.0
     private let rotationFactor: Double = 35.0
     private let swipeAnimationDuration: Double = 0.3
+    private let maxCardLift: CGFloat = 10.0
+    
+    // Stack visual constants
+    private let stackSpacing: CGFloat = 10.0
+    private let stackScaleDecrement: CGFloat = 0.06
+    private let cardCornerRadius: CGFloat = 15.0
+    
+    // EquatableKey for optimizing list rendering performance 
+    private struct CardIdentifier: Equatable {
+        let id: String
+        let zIndex: Double
+        let isTopCard: Bool
+    }
+    
+    // Computed color properties for dynamic styling
+    private var primaryGlowColor: Color {
+        colorScheme == .dark ? 
+            Color(red: 0.6, green: 0.3, blue: 1.0) : 
+            Color(red: 0.5, green: 0.0, blue: 1.0)
+    }
+    
+    private var secondaryGlowColor: Color {
+        colorScheme == .dark ? 
+            Color(red: 0.2, green: 0.7, blue: 0.9) : 
+            Color(red: 0.0, green: 0.6, blue: 1.0)
+    }
+    
+    // Computed property to determine if we're on a high-performance device
+    private var isHighPerformanceDevice: Bool {
+        // Use device RAM as a proxy for performance capabilities
+        let physicalMemory = ProcessInfo.processInfo.physicalMemory
+        // 4GB or more is considered high performance
+        return physicalMemory >= 4_000_000_000
+    }
     
     var body: some View {
         GeometryReader { geometry in
-            if model.isLoading || isTransitioning {
-                // Show loading view for both initial loading and transitions
+            if model.isLoading || isTransitioning || model.isPreparingStack {
+                // Show loading view for initial loading and transitions
                 loadingView
-            } else if let currentPhoto = model.currentPhoto {
-                photoStackView(geometry: geometry, currentPhoto: currentPhoto)
-                    .onAppear {
-                        // Store the current card ID to help prevent ghosting
-                        currentCardID = currentPhoto.id
-                        
-                        // Load preview of next photo if available
-                        loadNextPhotoPreview()
-                    }
+            } else if !model.visiblePhotoStack.isEmpty {
+                // Show the stack of photos
+                photoStackView(geometry: geometry)
             } else if model.isBatchComplete {
                 batchCompleteView(geometry: geometry)
             } else if let error = model.error {
                 errorView(geometry: geometry, errorMessage: error)
-            } else if !isTransitioning {
+            } else {
                 // Only show no photos if we're not in a transition
                 noPhotosView(geometry: geometry)
             }
         }
-        // No animation set on currentPhoto to avoid ghosting
         .animation(.easeInOut(duration: 0.3), value: model.isLoading)
         .animation(.easeInOut(duration: 0.3), value: model.isBatchComplete)
-    }
-    
-    // Load next photo preview
-    private func loadNextPhotoPreview() {
-        // Clear any existing preview
-        nextCardPreview = nil
-        
-        // Check if there's a next photo to preview
-        guard model.hasMorePhotos, 
-              model.currentIndex + 1 < model.photoAssets.count else {
-            return
-        }
-        
-        // Get the next asset
-        let nextAssetID = model.photoAssets[model.currentIndex + 1].localIdentifier
-        
-        // Check if we already have this image prefetched
-        if let prefetchedImage = model.prefetchedPhotos[nextAssetID] {
-            nextCardPreview = prefetchedImage
-        } else {
-            // Load a low-res version of the next photo 
-            let nextAsset = model.photoAssets[model.currentIndex + 1]
-            let manager = PHImageManager.default()
-            let requestOptions = PHImageRequestOptions()
-            requestOptions.deliveryMode = .fastFormat
-            requestOptions.isNetworkAccessAllowed = true
-            
-            // Request the image - store in a local variable to capture the preview
-            let previewTask = Task { @MainActor in
-                // Request the image using the global actor for UI updates
-                manager.requestImage(
-                    for: nextAsset,
-                    targetSize: CGSize(width: 300, height: 300),
-                    contentMode: .aspectFit,
-                    options: requestOptions
-                ) { result, info in
-                    guard let image = result else { return }
-                    
-                    // Update the preview image on the main thread
-                    Task { @MainActor in
-                        nextCardPreview = image
-                    }
-                }
-            }
-            
-            // Keep a reference to the task to avoid it being cancelled prematurely
-            _ = previewTask
-        }
+        .animation(.easeInOut(duration: 0.3), value: model.isPreparingStack)
     }
     
     // MARK: - Component Views
@@ -107,119 +88,257 @@ struct SwipeablePhotoStack: View {
         .transition(.opacity)
     }
     
-    private func photoStackView(geometry: GeometryProxy, currentPhoto: PhotoModel) -> some View {
+    private func photoStackView(geometry: GeometryProxy) -> some View {
         ZStack {
-            // Next photo preview - visible when dragging
-            if let nextImage = nextCardPreview, model.hasMorePhotos, abs(dragState.width) > 10 {
-                // Calculate opacity based on drag distance
-                let dragOpacity = min(abs(Double(dragState.width) / 200), 0.8)
+            // Background gradient for enhanced depth - only render on high performance devices
+            if isHighPerformanceDevice {
+                RoundedRectangle(cornerRadius: cardCornerRadius + 5)
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.black.opacity(0.6),
+                                Color.black.opacity(0.3)
+                            ]), 
+                            startPoint: .top, 
+                            endPoint: .bottom
+                        )
+                    )
+                    .blur(radius: 20)
+                    .opacity(0.3)
+                    .frame(
+                        width: geometry.size.width * 0.9 + 20,
+                        height: geometry.size.height * 0.85 + 20
+                    )
+                    .offset(y: 10)
+            }
                 
-                VStack {
-                    if let nextCreationDate = model.photoAssets[model.currentIndex + 1].creationDate {
-                        Text(dateFormatter.string(from: nextCreationDate))
-                            .font(.headline)
-                            .padding(.top)
-                    }
-                    
-                    Image(uiImage: nextImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .cornerRadius(10)
-                        .padding()
-                        .frame(maxWidth: geometry.size.width * 0.85, maxHeight: geometry.size.height * 0.7)
-                }
-                .frame(width: geometry.size.width * 0.9, height: geometry.size.height * 0.85)
-                .background(
-                    RoundedRectangle(cornerRadius: 15)
-                        .fill(Color.white)
-                )
-                .shadow(color: Color.gray.opacity(0.3), radius: 5, x: 0, y: 2)
-                .opacity(dragOpacity) // Dynamic opacity based on drag
-                .zIndex(0)
-            } else if model.hasMorePhotos {
-                // Static placeholder when not dragging or next image not loaded yet
-                Rectangle()
-                    .fill(Color.white)
-                    .frame(width: geometry.size.width * 0.85, height: geometry.size.height * 0.8)
-                    .cornerRadius(15)
-                    .shadow(color: Color.gray.opacity(0.2), radius: 5, x: 0, y: 2)
-                    .offset(y: 5)
-                    .zIndex(0)
+            // Create array of card identifiers for equatable rendering
+            let cardIdentifiers = model.visiblePhotoStack.enumerated().map { index, photo in
+                CardIdentifier(id: photo.id, zIndex: photo.zIndex, isTopCard: index == 0)
             }
             
-            // Show current photo - with key ID to prevent view reuse
-            PhotoCardView(
-                photo: currentPhoto,
-                size: geometry.size,
-                dragOffset: dragState,
-                onSwiped: { _ in }, // This is handled by the gesture below
-                isTopCard: true
-            )
-            .id(currentCardID) // Use our stored ID to ensure proper identification
-            .offset(x: dragState.width, y: dragState.height)
-            .rotationEffect(.degrees(Double(dragState.width) / rotationFactor))
-            .zIndex(1)
-            .gesture(
-                DragGesture()
-                    .onChanged { gesture in
-                        if !isAnimating {
-                            self.dragState = gesture.translation
-                            self.cardRotation = Double(gesture.translation.width) / rotationFactor
-                        }
-                    }
-                    .onEnded { _ in
-                        if !isAnimating && abs(self.dragState.width) > swipeThreshold {
-                            let swipeDirection: SwipeDirection = self.dragState.width > 0 ? .right : .left
-                            
-                            // Set animating flag
-                            isAnimating = true
-                            
-                            // Animate the card off screen
-                            withAnimation(.easeOut(duration: swipeAnimationDuration)) {
-                                self.dragState.width = self.dragState.width > 0 ? 1000 : -1000
-                                self.dragState.height = 100
-                            }
-                            
-                            // Process the swipe after animation
-                            Task {
-                                // Wait for the animation to complete
-                                try? await Task.sleep(for: .milliseconds(300))
-                                
-                                // Set transitioning state to true before clearing the current photo
-                                await MainActor.run {
-                                    isTransitioning = true
-                                    // Set dragState to zero before the processSwipe changes the model
-                                    self.dragState = .zero
-                                }
-                                
-                                // Process the swipe which will load the next photo
-                                await model.processSwipe(swipeDirection)
-                                
-                                // Reset animation flags after a brief delay to ensure clean transition
-                                try? await Task.sleep(for: .milliseconds(100))
-                                await MainActor.run {
-                                    self.isAnimating = false
-                                    self.isTransitioning = false
-                                }
-                            }
-                        } else if !isAnimating {
-                            // Reset if not swiped enough
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
-                                self.dragState = .zero
-                                self.cardRotation = 0
-                            }
-                        }
-                    }
-            )
-            .transition(
-                .asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.8).combined(with: .offset(y: 20))),
-                    removal: .opacity.combined(with: .offset(x: 0, y: 0))
-                )
-            )
+            // Use ForEach with identifiable, equatable elements for better diffing
+            ForEach(model.visiblePhotoStack.indices.reversed(), id: \.self) { index in
+                let photo = model.visiblePhotoStack[index]
+                let isTopCard = index == 0
+                
+                // Only render visible cards (performance optimization)
+                if index < 3 || isHighPerformanceDevice {
+                    cardView(for: photo, at: index, in: geometry)
+                        // Use key to prevent unnecessary re-renders when only dragState changes
+                        .id(cardIdentifiers[index])
+                }
+            }
         }
         .padding()
         .frame(width: geometry.size.width, height: geometry.size.height)
+        // Add a gesture to the entire stack container for better performance
+        .gesture(
+            DragGesture()
+                .onChanged { gesture in
+                    handleDragChange(gesture)
+                }
+                .onEnded { gesture in
+                    handleDragEnd(gesture)
+                }
+        )
+    }
+    
+    private func cardView(for photo: PhotoModel, at index: Int, in geometry: GeometryProxy) -> some View {
+        let isTopCard = index == 0
+        let cardView = PhotoCardView(
+            photo: photo,
+            size: geometry.size,
+            dragOffset: isTopCard ? dragState : .zero,
+            onSwiped: { _ in },
+            isTopCard: isTopCard
+        )
+        
+        // Enhanced card styling based on position in stack
+        let stackDepth = CGFloat(index)
+        
+        if isTopCard {
+            // Top card with enhanced dynamic styling
+            return AnyView(
+                ZStack {
+                    // Dynamic glow effect that changes based on drag direction
+                    let dragRatio = min(abs(dragState.width) / 200, 1.0)
+                    let dragDirection = dragState.width > 0 ? 1.0 : -1.0
+                    let glowColor = dragState.width > 30 ? Color.green.opacity(0.6) :
+                                    dragState.width < -30 ? Color.red.opacity(0.6) :
+                                    primaryGlowColor.opacity(0.6)
+                    
+                    // Only render enhanced effects on high performance devices
+                    if isHighPerformanceDevice {
+                        // Enhanced glow effect
+                        RoundedRectangle(cornerRadius: cardCornerRadius)
+                            .fill(Color.clear)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: cardCornerRadius)
+                                    .stroke(glowColor, lineWidth: 2)
+                            )
+                            .blur(radius: 3)
+                            .offset(x: dragDirection * dragRatio * 2)
+                            .scaleEffect(draggedCardScale + 0.01)
+                            .opacity(0.7)
+                    }
+                    
+                    // Actual card
+                    cardView
+                        .overlay(
+                            RoundedRectangle(cornerRadius: cardCornerRadius)
+                                .stroke(
+                                    dragState.width > 30 ? Color.green.opacity(dragRatio * 0.8) :
+                                    dragState.width < -30 ? Color.red.opacity(dragRatio * 0.8) :
+                                    Color.clear,
+                                    lineWidth: 3
+                                )
+                        )
+                }
+                .scaleEffect(draggedCardScale)
+                .offset(x: dragState.width, y: dragState.height + photo.offset.height)
+                .rotationEffect(.degrees(Double(dragState.width) / rotationFactor))
+                .zIndex(photo.zIndex)
+                // Create more dramatic shadow for top card
+                .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 5)
+                .shadow(color: isHighPerformanceDevice ? glowColor.opacity(0.3) : .clear, radius: 12, x: 0, y: 0)
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.8).combined(with: .offset(y: 20))),
+                    removal: .opacity.combined(with: .offset(x: dragState.width > 0 ? 500 : -500, y: 0))
+                ))
+                .animation(.spring(response: 0.4, dampingFraction: 0.7), value: dragState)
+            )
+        } else {
+            // Enhanced background card styling
+            let dragInfluence = min(abs(dragState.width) / 500, 1.0) // Normalize influence
+            let dragDirection = dragState.width > 0 ? 1.0 : -1.0
+            
+            // Enhanced background movement - more dynamic response
+            let horizontalShift = isAnimating ? 0 : dragDirection * dragInfluence * 8.0 * (1.0 / CGFloat(index + 1))
+            let verticalShift = isAnimating ? 0 : min(abs(dragState.height), 30) * 0.4 * (1.0 / CGFloat(index + 1))
+            let baseScale = photo.scale + (dragInfluence * 0.03 * (1.0 / CGFloat(index + 1)))
+            
+            // Invert direction slightly for cards deep in the stack for parallax effect
+            let parallaxFactor = index >= 2 ? -0.3 : 1.0
+            
+            // Enhanced dynamic offset with parallax effect
+            let dynamicOffset = CGSize(
+                width: photo.offset.width + (horizontalShift * parallaxFactor),
+                height: photo.offset.height - verticalShift
+            )
+            
+            // Enhanced shadow and lighting properties based on stack depth
+            let shadowOpacity = max(0.1, 0.25 - (stackDepth * 0.05))
+            let shadowRadius = max(2, 6 - (stackDepth * 1.5))
+            let shadowOffsetY = max(1, 4 - stackDepth)
+            
+            return AnyView(
+                ZStack {
+                    // Only render ambient glow on high performance devices
+                    if isHighPerformanceDevice {
+                        // Slight ambient glow for background cards
+                        RoundedRectangle(cornerRadius: cardCornerRadius)
+                            .fill(Color.clear)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: cardCornerRadius)
+                                    .stroke(secondaryGlowColor.opacity(0.2 - (stackDepth * 0.05)), lineWidth: 1)
+                            )
+                            .blur(radius: 2)
+                            .scaleEffect(baseScale + 0.01)
+                            .offset(dynamicOffset)
+                    }
+                    
+                    // Card with depth-based styling
+                    cardView
+                }
+                .scaleEffect(baseScale)
+                .offset(dynamicOffset)
+                .zIndex(photo.zIndex)
+                // Graduated shadows based on stack depth
+                .shadow(
+                    color: .black.opacity(shadowOpacity),
+                    radius: shadowRadius,
+                    x: 0,
+                    y: shadowOffsetY
+                )
+                // Additional subtle colored shadow only on high performance devices
+                .shadow(
+                    color: isHighPerformanceDevice ? secondaryGlowColor.opacity(0.1 - (stackDepth * 0.03)) : .clear,
+                    radius: isHighPerformanceDevice ? 15 : 0,
+                    x: 0,
+                    y: 0
+                )
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.7)),
+                    removal: .scale(scale: 1.1).combined(with: .opacity)
+                ))
+                .animation(.spring(response: 0.5, dampingFraction: 0.8), value: dragState)
+            )
+        }
+    }
+    
+    // MARK: - Gesture Handlers
+    
+    private func handleDragChange(_ gesture: DragGesture.Value) {
+        guard !isAnimating, !model.visiblePhotoStack.isEmpty else { return }
+        
+        self.dragState = gesture.translation
+        self.cardRotation = Double(gesture.translation.width) / rotationFactor
+        
+        // Calculate a slight scale increase when dragging to provide tactile feedback
+        let dragDistance = sqrt(pow(gesture.translation.width, 2) + pow(gesture.translation.height, 2))
+        let scaleFactor = min(dragDistance / 500, 0.05)
+        self.draggedCardScale = 1.0 + scaleFactor
+    }
+    
+    private func handleDragEnd(_ gesture: DragGesture.Value) {
+        guard !isAnimating, !model.visiblePhotoStack.isEmpty else { return }
+        
+        if abs(self.dragState.width) > swipeThreshold {
+            // Determine swipe direction
+            let swipeDirection: SwipeDirection = self.dragState.width > 0 ? .right : .left
+            
+            // Set animating flag
+            isAnimating = true
+            
+            // Animate the card off screen with enhanced effects
+            withAnimation(.easeOut(duration: swipeAnimationDuration)) {
+                self.dragState.width = self.dragState.width > 0 ? 1000 : -1000
+                self.dragState.height = 100
+                self.draggedCardScale = 0.8 // Shrink slightly as it flies away
+            }
+            
+            // Process the swipe after animation
+            Task {
+                // Wait for the animation to complete
+                try? await Task.sleep(for: .milliseconds(300))
+                
+                // Set transitioning state to true before clearing the current photo
+                await MainActor.run {
+                    isTransitioning = true
+                    // Reset drag state
+                    self.dragState = .zero
+                    self.draggedCardScale = 1.0
+                }
+                
+                // Process the swipe which will update the stack
+                await model.processSwipe(swipeDirection)
+                
+                // Reset animation flags after a brief delay to ensure clean transition
+                try? await Task.sleep(for: .milliseconds(100))
+                await MainActor.run {
+                    self.isAnimating = false
+                    self.isTransitioning = false
+                }
+            }
+        } else {
+            // Reset if not swiped enough with enhanced spring animation
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.6, blendDuration: 0.2)) {
+                self.dragState = .zero
+                self.cardRotation = 0
+                self.draggedCardScale = 1.0
+            }
+        }
     }
     
     private func batchCompleteView(geometry: GeometryProxy) -> some View {
