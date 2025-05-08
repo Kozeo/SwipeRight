@@ -56,6 +56,9 @@ struct SwipeablePhotoStack: View {
                 // Always show the photo stack if it's not empty, even during transitions
                 if !model.visiblePhotoStack.isEmpty {
                     photoStackView(geometry: geometry)
+                        // Disable animations when transitioning or preparing stack
+                        // to prevent unwanted card movement
+                        .animation(isTransitioning || model.isPreparingStack ? nil : .default, value: model.visiblePhotoStack.count)
                 } else if model.isLoading && !isTransitioning {
                     // Show loading only for initial loading, not transitions
                     loadingView
@@ -69,9 +72,11 @@ struct SwipeablePhotoStack: View {
                 }
             }
         }
+        // Keep animations for these state changes
         .animation(.easeInOut(duration: 0.3), value: model.isLoading)
         .animation(.easeInOut(duration: 0.3), value: model.isBatchComplete)
-        .animation(.easeInOut(duration: 0.3), value: model.isPreparingStack)
+        // But disable animations for stack preparation to avoid flickering
+        .animation(nil, value: model.isPreparingStack)
     }
     
     // MARK: - Component Views
@@ -123,6 +128,7 @@ struct SwipeablePhotoStack: View {
             }
             
             // Use ForEach with identifiable, equatable elements for better diffing
+            // Disable automatic animations for ForEach to prevent unwanted transitions
             ForEach(visibleStack.indices.reversed(), id: \.self) { index in
                 let photo = visibleStack[index]
                 let isTopCard = index == 0
@@ -134,6 +140,9 @@ struct SwipeablePhotoStack: View {
                         .id(cardIdentifiers[index])
                 }
             }
+            // Apply animation modifier only to explicit state changes
+            // This prevents implicit animations during ForEach updates
+            .animation(nil, value: UUID())
         }
         .padding()
         .frame(width: geometry.size.width, height: geometry.size.height)
@@ -207,10 +216,7 @@ struct SwipeablePhotoStack: View {
                 // Create more dramatic shadow for top card
                 .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 5)
                 .shadow(color: isHighPerformanceDevice ? glowColor.opacity(0.3) : .clear, radius: 12, x: 0, y: 0)
-                .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.95)),
-                    removal: .opacity.animation(.easeOut(duration: 0.2))
-                ))
+                // Remove transition effects for smooth forward movement
                 .animation(.spring(response: 0.4, dampingFraction: 0.7), value: dragState)
             )
         } else {
@@ -273,10 +279,7 @@ struct SwipeablePhotoStack: View {
                     x: 0,
                     y: 0
                 )
-                .transition(.asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.7)),
-                    removal: .scale(scale: 1.1).combined(with: .opacity)
-                ))
+                // Remove transition effects for smooth forward movement
                 .animation(.spring(response: 0.5, dampingFraction: 0.8), value: dragState)
             )
         }

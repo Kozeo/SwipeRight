@@ -684,24 +684,23 @@ import Observation
             // Only remove the top card if we have more than one card
             // This prevents flickering when we're at the end of the stack
             if visiblePhotoStack.count > 1 {
-                // Remove the top card (it was swiped)
-                visiblePhotoStack.removeFirst()
-                
-                // Move remaining cards up in the stack with enhanced animation
-                for i in 0..<visiblePhotoStack.count {
+                // First update existing card positions before removing the top card
+                // This ensures smooth transitions
+                for i in 1..<visiblePhotoStack.count {
                     // Smoothly animate cards moving up in the stack
                     visiblePhotoStack[i].zIndex += 1
                     
                     // Scale cards up as they move to the front
-                    let originalScale = 1.0 - (0.05 * CGFloat(i + 1))
-                    let targetScale = 1.0 - (0.05 * CGFloat(i))
+                    let targetScale = 1.0 - (0.05 * CGFloat(i - 1))
                     visiblePhotoStack[i].scale = targetScale
                     
                     // Move cards upward for better stacking effect
-                    let originalOffset = CGSize(width: 0, height: -8.0 * CGFloat(i + 1))
-                    let targetOffset = CGSize(width: 0, height: -8.0 * CGFloat(i))
+                    let targetOffset = CGSize(width: 0, height: -8.0 * CGFloat(i - 1))
                     visiblePhotoStack[i].offset = targetOffset
                 }
+                
+                // Now remove the top card after positions are updated
+                visiblePhotoStack.removeFirst()
                 
                 // Set the new current photo
                 currentPhoto = visiblePhotoStack.first
