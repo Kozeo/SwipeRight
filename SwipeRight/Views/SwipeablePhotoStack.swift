@@ -65,20 +65,26 @@ struct SwipeablePhotoStack: View {
             requestOptions.deliveryMode = .fastFormat
             requestOptions.isNetworkAccessAllowed = true
             
-            // Request the image
-            manager.requestImage(
-                for: nextAsset,
-                targetSize: CGSize(width: 300, height: 300),
-                contentMode: .aspectFit,
-                options: requestOptions
-            ) { [weak self] result, info in
-                guard let self = self, let image = result else { return }
-                
-                // Update the preview image on the main thread
-                Task { @MainActor in
-                    self.nextCardPreview = image
+            // Request the image - store in a local variable to capture the preview
+            let previewTask = Task { @MainActor in
+                // Request the image using the global actor for UI updates
+                manager.requestImage(
+                    for: nextAsset,
+                    targetSize: CGSize(width: 300, height: 300),
+                    contentMode: .aspectFit,
+                    options: requestOptions
+                ) { result, info in
+                    guard let image = result else { return }
+                    
+                    // Update the preview image on the main thread
+                    Task { @MainActor in
+                        nextCardPreview = image
+                    }
                 }
             }
+            
+            // Keep a reference to the task to avoid it being cancelled prematurely
+            _ = previewTask
         }
     }
     
