@@ -120,36 +120,27 @@ struct SwipeablePhotoStack: View {
                     .offset(y: 10)
             }
             
-            // Safe copy of the current stack to prevent changes during iteration
-            let visibleStack = model.visiblePhotoStack
-                
-            // Create array of card identifiers for equatable rendering
-            let cardIdentifiers = visibleStack.enumerated().map { index, photo in
-                CardIdentifier(id: photo.id, zIndex: photo.zIndex, isTopCard: index == 0)
+            // Fixed, static stack instead of ForEach to avoid animation issues
+            // Get the current stack
+            let stack = model.visiblePhotoStack
+            
+            // Display up to 3 static card views based on what's available in the stack
+            // IMPORTANT: This completely avoids the ForEach animation issues
+            
+            // Card 3 (furthest back)
+            if stack.count >= 3, let photo = stack[safe: 2] {
+                staticCardView(photo: photo, index: 2, geometry: geometry)
             }
             
-            // Use ForEach with identifiable, equatable elements for better diffing
-            // Disable automatic animations for ForEach to prevent unwanted transitions
-            ForEach(visibleStack.indices.reversed(), id: \.self) { index in
-                let photo = visibleStack[index]
-                let isTopCard = index == 0
-                
-                // Only render visible cards (performance optimization)
-                if index < 3 || isHighPerformanceDevice {
-                    cardView(for: photo, at: index, in: geometry)
-                        // Use key to prevent unnecessary re-renders when only dragState changes
-                        .id(cardIdentifiers[index])
-                        // Disable animations for card positioning to prevent flickering
-                        .animation(nil, value: photo.zIndex)
-                        .animation(nil, value: photo.scale)
-                        .animation(nil, value: photo.offset)
-                        // Disable all animations during transitions
-                        .animation(isTransitioning ? nil : .default, value: photo.id)
-                }
+            // Card 2 (middle)
+            if stack.count >= 2, let photo = stack[safe: 1] {
+                staticCardView(photo: photo, index: 1, geometry: geometry)
             }
-            // Apply animation modifier only to explicit state changes
-            // This prevents implicit animations during ForEach updates
-            .animation(nil, value: UUID())
+            
+            // Card 1 (top card)
+            if !stack.isEmpty, let photo = stack[safe: 0] {
+                staticCardView(photo: photo, index: 0, geometry: geometry)
+            }
         }
         .padding()
         .frame(width: geometry.size.width, height: geometry.size.height)
@@ -165,7 +156,7 @@ struct SwipeablePhotoStack: View {
         )
     }
     
-    private func cardView(for photo: PhotoModel, at index: Int, in geometry: GeometryProxy) -> some View {
+    private func staticCardView(photo: PhotoModel, index: Int, geometry: GeometryProxy) -> some View {
         let isTopCard = index == 0
         let cardView = PhotoCardView(
             photo: photo,
@@ -219,31 +210,24 @@ struct SwipeablePhotoStack: View {
                 .scaleEffect(draggedCardScale)
                 .offset(x: dragState.width, y: dragState.height + photo.offset.height)
                 .rotationEffect(.degrees(Double(dragState.width) / rotationFactor))
-                .zIndex(photo.zIndex)
+                .zIndex(3) // Explicitly use 3 for top card
                 // Create more dramatic shadow for top card
                 .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 5)
                 .shadow(color: isHighPerformanceDevice ? glowColor.opacity(0.3) : .clear, radius: 12, x: 0, y: 0)
-                // Remove transition effects for smooth forward movement
+                // Only animate drag changes
                 .animation(.spring(response: 0.4, dampingFraction: 0.7), value: dragState)
+                .animation(nil, value: UUID()) // Prevent animations for view updates
             )
         } else {
-            // Enhanced background card styling
-            let dragInfluence = min(abs(dragState.width) / 500, 1.0) // Normalize influence
-            let dragDirection = dragState.width > 0 ? 1.0 : -1.0
+            // Enhanced background card styling with STATIC positioning
+            // Use fixed zIndex values rather than photo.zIndex
+            let zIndexValue = index == 1 ? 2.0 : 1.0
             
-            // Enhanced background movement - more dynamic response
-            let horizontalShift = isAnimating ? 0 : dragDirection * dragInfluence * 8.0 * (1.0 / CGFloat(index + 1))
-            let verticalShift = isAnimating ? 0 : min(abs(dragState.height), 30) * 0.4 * (1.0 / CGFloat(index + 1))
-            let baseScale = photo.scale + (dragInfluence * 0.03 * (1.0 / CGFloat(index + 1)))
+            // Use static scale values instead of photo.scale
+            let scaleValue = index == 1 ? 0.95 : 0.9
             
-            // Invert direction slightly for cards deep in the stack for parallax effect
-            let parallaxFactor = index >= 2 ? -0.3 : 1.0
-            
-            // Enhanced dynamic offset with parallax effect
-            let dynamicOffset = CGSize(
-                width: photo.offset.width + (horizontalShift * parallaxFactor),
-                height: photo.offset.height - verticalShift
-            )
+            // Use static offset values instead of photo.offset
+            let offsetValue = CGSize(width: 0, height: -8.0 * CGFloat(index))
             
             // Enhanced shadow and lighting properties based on stack depth
             let shadowOpacity = max(0.1, 0.25 - (stackDepth * 0.05))
@@ -262,16 +246,16 @@ struct SwipeablePhotoStack: View {
                                     .stroke(secondaryGlowColor.opacity(0.2 - (stackDepth * 0.05)), lineWidth: 1)
                             )
                             .blur(radius: 2)
-                            .scaleEffect(baseScale + 0.01)
-                            .offset(dynamicOffset)
+                            .scaleEffect(scaleValue + 0.01)
+                            .offset(offsetValue)
                     }
                     
                     // Card with depth-based styling
                     cardView
                 }
-                .scaleEffect(baseScale)
-                .offset(dynamicOffset)
-                .zIndex(photo.zIndex)
+                .scaleEffect(scaleValue)
+                .offset(offsetValue)
+                .zIndex(zIndexValue)
                 // Graduated shadows based on stack depth
                 .shadow(
                     color: .black.opacity(shadowOpacity),
@@ -286,11 +270,8 @@ struct SwipeablePhotoStack: View {
                     x: 0,
                     y: 0
                 )
-                // Remove transition effects for smooth forward movement
-                .animation(.spring(response: 0.5, dampingFraction: 0.8), value: dragState)
-                // Add a subtle fade-in for new cards
-                .opacity(model.isPreparingStack ? 0 : 1)
-                .animation(model.isPreparingStack ? nil : .easeIn(duration: 0.2), value: model.isPreparingStack)
+                // Disable ALL animations for non-top cards
+                .animation(nil, value: UUID())
             )
         }
     }
@@ -323,14 +304,11 @@ struct SwipeablePhotoStack: View {
             let screenWidth = UIScreen.main.bounds.width
             let screenHeight = UIScreen.main.bounds.height
             
-            // Calculate exit target angle for more natural movement
-            let exitAngle = Double(gesture.translation.width > 0 ? 15 : -15)
-            
-            // Animate the card off screen with enhanced effects
+            // FIRST ANIMATION PHASE: Card leaving screen
             withAnimation(.easeOut(duration: swipeAnimationDuration)) {
-                // Ensure card moves completely off screen in the swipe direction
+                // Animate card completely off screen
                 self.dragState.width = gesture.translation.width > 0 
-                    ? screenWidth * 1.5 // Move further to ensure it's offscreen
+                    ? screenWidth * 1.5
                     : -screenWidth * 1.5
                 
                 // Apply vertical movement for more natural effect based on gesture
@@ -338,7 +316,7 @@ struct SwipeablePhotoStack: View {
                 self.dragState.height = verticalRatio * screenHeight * 0.5
                 
                 // Set rotation for natural feel
-                self.cardRotation = exitAngle
+                self.cardRotation = Double(gesture.translation.width > 0 ? 15 : -15)
                 
                 // Slightly scale down as card exits
                 self.draggedCardScale = 0.95
@@ -346,36 +324,40 @@ struct SwipeablePhotoStack: View {
             
             // Process the swipe after animation
             Task {
-                // Wait for the animation to complete
+                // Wait for FIRST animation phase to complete (card leaves screen)
                 try? await Task.sleep(for: .milliseconds(Int(swipeAnimationDuration * 1000)))
                 
-                // Set transitioning state to true before clearing the current photo
-                // This is the critical moment to disable animations
+                // CRITICAL: Reset UI state BEFORE model update
                 await MainActor.run {
-                    isTransitioning = true
-                }
-                
-                // Process the swipe which will update the stack
-                await model.processSwipe(swipeDirection)
-                
-                // Reset animation flags after processing
-                await MainActor.run {
-                    // Reset drag state AFTER the card is removed from the stack
+                    // Reset drag state before any model changes to avoid animation conflicts
                     self.dragState = .zero
                     self.cardRotation = 0
                     self.draggedCardScale = 1.0
+                    
+                    // Disable animations during card stack updates
+                    self.isTransitioning = true
+                }
+                
+                // Process the swipe in the model - this updates the stack
+                await model.processSwipe(swipeDirection)
+                
+                // SECOND ANIMATION PHASE: New card becoming visible
+                // Wait a short moment for the UI to stabilize
+                try? await Task.sleep(for: .milliseconds(50))
+                
+                await MainActor.run {
+                    // Re-enable animations
                     self.isAnimating = false
                     
-                    // Keep transitioning flag true for a moment longer to ensure
-                    // no animation happens during the stack update
+                    // Wait before enabling transitions to ensure everything is stable
                     Task {
                         try? await Task.sleep(for: .milliseconds(100))
-                        isTransitioning = false
+                        self.isTransitioning = false
                     }
                 }
             }
         } else {
-            // Reset if not swiped enough with enhanced spring animation
+            // Reset if not swiped enough
             withAnimation(.spring(response: 0.4, dampingFraction: 0.6, blendDuration: 0.2)) {
                 self.dragState = .zero
                 self.cardRotation = 0
@@ -496,4 +478,11 @@ struct SwipeablePhotoStack: View {
 // Preview provider
 #Preview {
     SwipeablePhotoStack(model: PhotoViewModel())
+}
+
+// Add safe array access extension
+extension Array {
+    subscript(safe index: Index) -> Element? {
+        return indices.contains(index) ? self[index] : nil
+    }
 } 
