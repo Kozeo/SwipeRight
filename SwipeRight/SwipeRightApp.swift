@@ -10,6 +10,9 @@ import SwiftData
 
 @main
 struct SwipeRightApp: App {
+    // Create our PhotoViewModel
+    @State private var photoViewModel = PhotoViewModel()
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Item.self,
@@ -25,7 +28,7 @@ struct SwipeRightApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            PhotoBrowserView(model: photoViewModel)
         }
         .modelContainer(sharedModelContainer)
     }
